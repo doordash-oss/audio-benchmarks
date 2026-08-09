@@ -1,0 +1,9 @@
+theme: jekyll-theme-cayman
+title: Order-Up-Bench
+
+exclude:
+  - bin/
+  - eval/
+  - initial_doc
+  - README.md
+  - "Screenshot*.png"

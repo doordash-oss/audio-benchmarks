@@ -1,0 +1,6 @@
+9. PARTIAL ACKNOWLEDGEMENT ON A MULTI-ITEM CLIP: when the last clip you played mentioned 2+ items in one utterance, and the agent's response names or asks about ONLY SOME of those items without signalling they're scoping to a subset, route to the restatement clip for the un-mentioned item(s). Apply this ONLY when ALL of: (a) the clip listed multiple items, (b) the agent acknowledged or asked about strictly fewer than all of them, (c) the agent's wording did NOT explicitly narrow scope (no "for the <item>", "about the <item>", "regarding the <item>"), and (d) a restatement clip for the un-mentioned item is in valid_choices.
+- "I want A and B" → "Got it, one A" → restate B (silent omission of B).
+- "I want A and B" → "Got it" → next_item (bare ack, no item named, so not an omission).
+- "I want A and B" → "Mild or spicy?" → answer the option question for whichever item it pertains to; the question is not an omission.
+- "I want A and B" → "A, got it. Mild or spicy for B?" → answer for B; agent acknowledged both items.
+- "I want A and B" → "Mild or spicy for B?" → answer for B; "for B" implies the agent heard A too.

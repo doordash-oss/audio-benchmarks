@@ -1,0 +1,22 @@
+_site/
+.jekyll-cache/
+.jekyll-metadata
+.bundle/
+vendor/
+Screenshot*.png
+.DS_Store
+
+# Secrets — never track .env at any depth.
+.env
+**/.env
+
+# eval/ — only the clip_eval/ source tree is tracked; the rest is
+# either local (artifacts) or symlinked into a sibling repo.
+eval/.venv
+eval/artifacts/
+eval/node_modules
+eval/package.json
+eval/__pycache__/
+eval/**/__pycache__/
+eval/**/*.pyc
+eval/**/.DS_Store

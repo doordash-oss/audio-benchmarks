@@ -1,0 +1,9 @@
+# Pipecat-based Role B adapter — Python dependencies.
+# Requires Python >=3.11 (pipecat-ai 1.x); see PLAN.md §4.
+# Install into the local venv with:
+#   uv pip install --python .venv/bin/python -r requirements.txt
+#
+# NOTE: the M2 skeleton (pipecat_role_b_adapter.py) is pure stdlib and runs
+# without these installed. They are needed from M4 onward (the model leg).
+pipecat-ai[openai,webrtc,google,ultravox,grok,xai]==1.3.0
+aiohttp>=3.9

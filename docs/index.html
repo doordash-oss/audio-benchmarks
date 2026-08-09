@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en-US">
+  <head>
+    <meta charset="UTF-8">
+
+<!-- Begin Jekyll SEO tag v2.9.0 -->
+<title>Order-Up-Bench</title>
+<meta name="generator" content="Jekyll v4.4.1" />
+<meta property="og:title" content="Order-Up-Bench" />
+<meta property="og:locale" content="en_US" />
+<meta property="og:site_name" content="Order-Up-Bench" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="Order-Up-Bench" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebSite","headline":"Order-Up-Bench","name":"Order-Up-Bench","url":"/"}</script>
+<!-- End Jekyll SEO tag -->
+
+    <link rel="preconnect" href="https://fonts.gstatic.com">
+    <link rel="preload" href="https://fonts.googleapis.com/css?family=Open+Sans:400,700&display=swap" as="style" type="text/css" crossorigin>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#157878">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="stylesheet" href="/assets/css/style.css?v=">
+    <!-- start custom head snippets, customize with your own _includes/head-custom.html file -->
+
+<!-- Setup Google Analytics -->
+
+
+
+<!-- You can set your favicon here -->
+<!-- link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" -->
+
+<!-- end custom head snippets -->
+
+  </head>
+  <body>
+    <a id="skip-to-content" href="#content">Skip to the content.</a>
+
+    <header class="page-header" role="banner">
+      <h1 class="project-name">Order-Up-Bench</h1>
+      <h2 class="project-tagline"></h2>
+      
+      
+    </header>
+
+    <main id="content" class="main-content" role="main">
+      <link rel="stylesheet" href="/assets/css/timeline.css" />
+
+<h1 id="order-up-bench">Order-Up-Bench</h1>
+
+<h2 id="problem-setting">Problem Setting</h2>
+
+<p>With the advent of “speech-to-speech” models trained to natively process text and audio inputs and outputs, more applications are making use of the capabilities to support more natural user-agent interaction. This additional capability can come at the cost of interpretability when trying to measure model performance. Where a cascaded ASR → LLM → TTS pipeline allows for error attribution at a specific pipeline stage (e.g. “transcription error”, “reasoning failure”, “intent misclassification”), a single end-to-end model is a black box which can only be evaluated end-to-end.</p>
+
+<p>To address this problem, evaluation benchmarks have been developed to stress an agent’s ability to accomplish a task by building some structured output in response to an audio message or a sequence of messages. <strong>Full Duplex Bench V3</strong> builds a dataset of audio clips containing simulated customer requests and tasks the agent with coming up with the correct set of tool calls based on the request. The user speech contains disfluencies representing a customer hesitating or changing their mind which are more common in speech than in the text modality. Speech samples may require multiple tool calls in sequence or may contain a set of corrections or revisions to earlier parts of the speech, but the entire clip is played in a single utterance without waiting for the agent’s response.</p>
+
+<p>In an earlier work, <strong>Full Duplex Bench V2</strong> attempts to model the real-world challenges associated with the multi-turn setting by using a second agent generating synthetic customer requests and follow-ups instead of a recording. This allows the customer to represent more complex multi-turn behavior, but it is hard for synthetically generated speech to capture the features that make natural speech audio a challenging domain.</p>
+
+<p>This benchmark, <strong>Order-Up-Bench</strong>, tries to combine the natural speech disfluencies and the multi-turn evaluation setting of the previous approaches. Specifically, we measure the capability of an agent to build a virtual “cart” for a restaurant order when played against an “examiner” agent playing the role of customer. The examiner does not generate any speech itself. Instead, after each agent response, the agent emits a tool call containing the ID of the next audio clip to play, and then a fragment of audio from a real recording is played and fed to the agent, simulating a dialog between an agent and a human speaker.</p>
+
+<h2 id="evaluation">Evaluation</h2>
+
+<h3 id="food-ordering">Food Ordering</h3>
+
+<p>The food ordering domain provides several challenges which make it a good candidate for benchmarking speech-powered agents. When entering structured data into a system for recording orders, there is often no flexibility in representation — the items in the order must appear exactly as they appear in the menu with all the required options selected. Often a customer’s request doesn’t map cleanly to exactly one combination of items and options from the menu. In that case, the agent must judge whether to find the closest match on the menu and assume what the customer means or to ask a follow-up question to get more information. This setting naturally lends itself to turn-taking.</p>
+
+<p>In the specific prompt and tool set the model has access to, the possible actions are “add an item to the cart (with options)”, “remove an item from the cart”, or “submit the order”. Items on the menu have options and required choices. Required choices can have defaults, and a required choice with no defaults requires the agent to collect the information about that choice from the customer.</p>
+
+<h3 id="multi-turn-harness">Multi-turn Harness</h3>
+
+<p>The agent in charge of playing clips is given access to a fairly simple decision tree describing how to play the available clips. First, play the clip for a given item. If the agent asks a follow-up question about that item, if the clip player has access to a relevant response for that question for that item, play it. If there is no question or no matching answer move on to the next item or for any pending “corrections” for the current item (i.e. play a clip where the customer says “Actually I want &lt;item&gt; instead”). The customer clip player agent is tuned so that it waits to emit its next response until it detects the agent has finished speaking, reducing (but not fully eliminating) the possibility of interruptions of the agent by the customer. In general we’re more concerned with how often the agent interrupts the customer than how the agent responds to being interrupted by the customer.</p>
+
+<p>Some customer clips contain speech for multiple items in one clip or for an item and its correction all without a gap in between. In these cases the agent must produce the correct sequence of outputs for the request, not just a single tool call.</p>
+
+<p>Based on the expected sequence of played clips, we construct a “ground truth” cart and compare it to the cart produced at the end of the session.</p>
+
+<h3 id="why-multi-turn">Why multi-turn?</h3>
+
+<p>It’s worth asking what benefit there is for running this multi-turn evaluation vs running a simpler single-turn evaluation against each turn of the conversation clips and aggregating the scores. The multi-turn framework has the opportunity to surface some issues which would be difficult to surface in single-turn evals:</p>
+
+<ul>
+  <li><strong>Single-turn evaluations penalize models for waiting for certainty before modifying the cart.</strong> Instead of having to make a binary decision for a label for each utterance for whether a tool call should happen immediately after each message, we can allow the agent to decide and to follow-up, and explicitly measure the trade-off of success rate vs time to complete the session.</li>
+  <li><strong>Accounting for the customer’s “theory of mind” is an important criteria for successful speech agents.</strong> In scenarios where a customer asks for multiple items/options/corrections in a single utterance, a speaker is not always 100% certain that their counterpart heard or understood them correctly. If the agent fails to convey to the customer that they understood their full message, the customer may repeat themselves or restate their order in a different way. We need to then measure how the agent handles this follow-up and if they can successfully reconcile both speakers to the same understanding of what’s been ordered so far.</li>
+  <li><strong>More turns means more opportunities to diverge from strict turn-taking behavior</strong> and encounter cases where the precise timing of utterances has a significant impact on meaning. For example, if an agent asks two or more questions, the precise timing of the customer’s response is important to the meaning. If an agent asks “Would you like anything else? Is that all?”, then a “no” response has opposite meaning if “no” arrives before/after the “is that all?”. Can an agent reconcile which question an answer was in response to?</li>
+  <li><strong>It’s hard to predict the cascading nature of errors and their effects on the final result without running a full conversation.</strong> Consider a case where VAD is firing too aggressively on noise after a customer request, which leads to the agent taking too long to respond, which leads to the customer repeating their order unsure if the agent heard it, which leads to the agent incorrectly assuming the customer is asking for a second order rather than restating their first — individually we can measure some of these error rates but not necessarily say how they’ll affect the end-to-end system.</li>
+</ul>
+
+<h2 id="data-complications">Data Complications</h2>
+
+<p>The recordings that were spliced to generate the clips for each scenario were collected from two-player interactions with a “game” UI showing one player which items to order verbally for their partner to put into a UI. The partner’s UI can then show them if there are any required options missing so they can ask a follow-up and induce their partner to respond with a natural sounding answer. The UI also tells the “customer” player randomly to correct their options to something else. Instead of providing a specific script with pre-determined phrasing, the UI and the nature of the two-player interaction provides a scaffold for what content to discuss but leaves the actual phrasing up to the players. Two players are free to communicate about the items that need to be ordered in whatever way they want as long as they accomplish the task by building the right cart in the end.</p>
+
+<p>This collection method gives us a variety of different speech patterns:</p>
+
+<ul>
+  <li>All items ordered in a single utterance</li>
+  <li>Item + correction ordered together</li>
+  <li>One item at a time with “agent” player acknowledgement in between</li>
+  <li>Separate item order + option clarification utterances</li>
+</ul>
+
+<p>In addition to those content-related features, the collection process samples from a variety of users across different devices, accents, and background noise environments.</p>
+
+<h3 id="dataset-composition">Dataset composition</h3>
+
+<p>The working set for the V1 benchmark is 254 per-stage tasks drawn from 65 recording sessions spanning 15 distinct restaurants. Of the 254 stages, 236 are attributable to a specific user via the recording pipeline’s session metadata; the remaining 18 predate that metadata and are grouped as unknown.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>metric</th>
+      <th style="text-align: right">value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Working-set stages</td>
+      <td style="text-align: right">254</td>
+    </tr>
+    <tr>
+      <td>Distinct users (attributed)</td>
+      <td style="text-align: right">49</td>
+    </tr>
+    <tr>
+      <td>Stages per user — min</td>
+      <td style="text-align: right">1</td>
+    </tr>
+    <tr>
+      <td>Stages per user — median</td>
+      <td style="text-align: right">3</td>
+    </tr>
+    <tr>
+      <td>Stages per user — max</td>
+      <td style="text-align: right">33</td>
+    </tr>
+    <tr>
+      <td>Stages per user — mean</td>
+      <td style="text-align: right">4.8</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The distribution is long-tailed: three users contribute a large fraction of the corpus (top-3 combined: 67 stages, ≈28% of attributed stages), while the median user contributes 3 stages. This reflects the data-collection pattern of a small number of high-throughput users generating repeat sessions alongside a broader pool of one-off contributors. The dashboard’s <code class="language-plaintext highlighter-rouge">/compare</code> page carries a per-user stage-count chart derived from the same data; the <code class="language-plaintext highlighter-rouge">/by_user</code> view carries the full session ↔ user ↔ tid rollup.</p>
+
+<h2 id="results">Results</h2>
+
+<h3 id="metrics">Metrics</h3>
+
+<p>Headline numbers from the multi-model benchmark sweep over 254 per-stage tasks (4 models).</p>
+
+<h4 id="success-rate">Success rate</h4>
+
+<p>A run counts as a success when the agent’s final cart matches the ground-truth cart exactly — every expected item present, no extras, no wrong options or variants. The denominator is the number of tasks with at least one run on that model; the all-pass intersection is the set where every model scored 1.0 (used as the comparable subset for timing).</p>
+
+<p>254 tasks evaluated  ·  56-task all-pass intersection</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>model</th>
+      <th style="text-align: right">passed</th>
+      <th style="text-align: right">total</th>
+      <th style="text-align: right">rate</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>OpenAI Realtime · native</td>
+      <td style="text-align: right">173</td>
+      <td style="text-align: right">254</td>
+      <td style="text-align: right"><strong>68.1%</strong></td>
+    </tr>
+    <tr>
+      <td>Grok Voice · xAI Realtime</td>
+      <td style="text-align: right">165</td>
+      <td style="text-align: right">254</td>
+      <td style="text-align: right"><strong>65.0%</strong></td>
+    </tr>
+    <tr>
+      <td>Gemini Live · Pipecat</td>
+      <td style="text-align: right">151</td>
+      <td style="text-align: right">254</td>
+      <td style="text-align: right"><strong>59.4%</strong></td>
+    </tr>
+    <tr>
+      <td>Cascaded · Whisper+GPT-4.1+TTS</td>
+      <td style="text-align: right">155</td>
+      <td style="text-align: right">254</td>
+      <td style="text-align: right"><strong>61.0%</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="recoverability">Recoverability</h4>
+
+<p>Among the conversations with a cart mismatch against ground truth, not all failures are equal in severity. When an agent deviates from the expected trajectory, ur customer simulator agent has some limited capability to steer the conversation back on track. For example, a common failure mode among all models is asking unnecessary clarifying questions to which the original reference audio has no answer. Specifically, if the agent asks about a required option choice which has a default value, the prompt instructs the agent not to ask about that group and to let the backend fill in the default values. If the agent goes off-policy and asks a superfluous question, we give the customer model access to a special clip with audio saying “just the defaults”. In certain scenarios, playing this clip can help the concersation converge to the expected trajectory, and we mark this conversation as “<strong>recovered</strong>”. 
+Because we limit the scope of possible repairs to keep the clip player/customer player predictable and consistent, there are situations where the agent deviated from the expected trajectory in a way where a real customer <em>could</em> correct the agent and steer the trajectory back to the expected cart, but the simulated customer cannot. These evaluated conversations are marked as “<strong>recoverable</strong>”. A prime example of this case, is when the agent adds the wrong item to the cart but reads back clearly what they added. A real customer <em>could</em> in theory hear this and ask the agent to make a correction, but this is not guaranteed.
+Finally, some conversations are “<strong>unrecoverable</strong>”. Generally these are stages where an agent silently adds or drops an item without acknowledging to the customer what they did.
+(See the error breakdown section for more detail about recoverable vs unrecoverable issues.)</p>
+
+<svg viewBox="0 0 720 380" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:720px;font:11px sans-serif;display:block;margin:8px 0;">
+<text x="50" y="14" font-weight="700" fill="#222">Recoverability · share of tasks per outcome (of 254 tasks)</text>
+<line x1="50" x2="704" y1="270.0" y2="270.0" stroke="#eee" />
+<text x="44" y="273.0" text-anchor="end" fill="#666">0%</text>
+<line x1="50" x2="704" y1="221.6" y2="221.6" stroke="#eee" />
+<text x="44" y="224.6" text-anchor="end" fill="#666">20%</text>
+<line x1="50" x2="704" y1="173.2" y2="173.2" stroke="#eee" />
+<text x="44" y="176.2" text-anchor="end" fill="#666">40%</text>
+<line x1="50" x2="704" y1="124.8" y2="124.8" stroke="#eee" />
+<text x="44" y="127.8" text-anchor="end" fill="#666">60%</text>
+<line x1="50" x2="704" y1="76.4" y2="76.4" stroke="#eee" />
+<text x="44" y="79.4" text-anchor="end" fill="#666">80%</text>
+<line x1="50" x2="704" y1="28.0" y2="28.0" stroke="#eee" />
+<text x="44" y="31.0" text-anchor="end" fill="#666">100%</text>
+<line x1="50" x2="704" y1="270.0" y2="270.0" stroke="#333" />
+<rect x="116.8" y="129.0" width="80" height="141.0" fill="#2e7d32" stroke="#fff" stroke-width="1"><title>OAI · passed: 148 (58.3%)</title></rect>
+<text x="156.8" y="203.5" text-anchor="middle" fill="#fff" font-weight="600">148 (58.3%)</text>
+<rect x="116.8" y="105.2" width="80" height="23.8" fill="#7cb342" stroke="#fff" stroke-width="1"><title>OAI · recovered: 25 (9.8%)</title></rect>
+<text x="156.8" y="121.1" text-anchor="middle" fill="#fff" font-weight="600">25 (9.8%)</text>
+<rect x="116.8" y="62.3" width="80" height="42.9" fill="#f0a020" stroke="#fff" stroke-width="1"><title>OAI · recoverable failure: 45 (17.7%)</title></rect>
+<text x="156.8" y="87.7" text-anchor="middle" fill="#fff" font-weight="600">45 (17.7%)</text>
+<rect x="116.8" y="28.0" width="80" height="34.3" fill="#a32020" stroke="#fff" stroke-width="1"><title>OAI · unrecoverable failure: 36 (14.2%)</title></rect>
+<text x="156.8" y="49.1" text-anchor="middle" fill="#fff" font-weight="600">36 (14.2%)</text>
+<text x="156.8" y="288.0" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
+<rect x="263.6" y="200.4" width="80" height="69.6" fill="#2e7d32" stroke="#fff" stroke-width="1"><title>GEM · passed: 73 (28.7%)</title></rect>
+<text x="303.6" y="239.2" text-anchor="middle" fill="#fff" font-weight="600">73 (28.7%)</text>
+<rect x="263.6" y="126.1" width="80" height="74.3" fill="#7cb342" stroke="#fff" stroke-width="1"><title>GEM · recovered: 78 (30.7%)</title></rect>
+<text x="303.6" y="167.3" text-anchor="middle" fill="#fff" font-weight="600">78 (30.7%)</text>
+<rect x="263.6" y="44.2" width="80" height="81.9" fill="#f0a020" stroke="#fff" stroke-width="1"><title>GEM · recoverable failure: 86 (33.9%)</title></rect>
+<text x="303.6" y="89.2" text-anchor="middle" fill="#fff" font-weight="600">86 (33.9%)</text>
+<rect x="263.6" y="28.0" width="80" height="16.2" fill="#a32020" stroke="#fff" stroke-width="1"><title>GEM · unrecoverable failure: 17 (6.7%)</title></rect>
+<text x="303.6" y="40.1" text-anchor="middle" fill="#fff" font-weight="600">17 (6.7%)</text>
+<text x="303.6" y="288.0" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
+<rect x="410.4" y="241.4" width="80" height="28.6" fill="#2e7d32" stroke="#fff" stroke-width="1"><title>CAS · passed: 30 (11.8%)</title></rect>
+<text x="450.4" y="259.7" text-anchor="middle" fill="#fff" font-weight="600">30 (11.8%)</text>
+<rect x="410.4" y="122.3" width="80" height="119.1" fill="#7cb342" stroke="#fff" stroke-width="1"><title>CAS · recovered: 125 (49.2%)</title></rect>
+<text x="450.4" y="185.9" text-anchor="middle" fill="#fff" font-weight="600">125 (49.2%)</text>
+<rect x="410.4" y="43.2" width="80" height="79.1" fill="#f0a020" stroke="#fff" stroke-width="1"><title>CAS · recoverable failure: 83 (32.7%)</title></rect>
+<text x="450.4" y="86.8" text-anchor="middle" fill="#fff" font-weight="600">83 (32.7%)</text>
+<rect x="410.4" y="28.0" width="80" height="15.2" fill="#a32020" stroke="#fff" stroke-width="1"><title>CAS · unrecoverable failure: 16 (6.3%)</title></rect>
+<text x="450.4" y="39.6" text-anchor="middle" fill="#fff" font-weight="600">16 (6.3%)</text>
+<text x="450.4" y="288.0" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
+<rect x="557.2" y="155.7" width="80" height="114.3" fill="#2e7d32" stroke="#fff" stroke-width="1"><title>GROK · passed: 120 (47.2%)</title></rect>
+<text x="597.2" y="216.8" text-anchor="middle" fill="#fff" font-weight="600">120 (47.2%)</text>
+<rect x="557.2" y="112.8" width="80" height="42.9" fill="#7cb342" stroke="#fff" stroke-width="1"><title>GROK · recovered: 45 (17.7%)</title></rect>
+<text x="597.2" y="138.2" text-anchor="middle" fill="#fff" font-weight="600">45 (17.7%)</text>
+<rect x="557.2" y="39.4" width="80" height="73.4" fill="#f0a020" stroke="#fff" stroke-width="1"><title>GROK · recoverable failure: 77 (30.3%)</title></rect>
+<text x="597.2" y="80.1" text-anchor="middle" fill="#fff" font-weight="600">77 (30.3%)</text>
+<rect x="557.2" y="28.0" width="80" height="11.4" fill="#a32020" stroke="#fff" stroke-width="1"><title>GROK · unrecoverable failure: 12 (4.7%)</title></rect>
+<text x="597.2" y="288.0" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
+<rect x="50.0" y="314.0" width="11" height="11" fill="#2e7d32" />
+<text x="66.0" y="323.0" fill="#333">passed</text>
+<rect x="130.0" y="314.0" width="11" height="11" fill="#7cb342" />
+<text x="146.0" y="323.0" fill="#333">recovered (just_the_defaults)</text>
+<rect x="320.0" y="314.0" width="11" height="11" fill="#f0a020" />
+<text x="336.0" y="323.0" fill="#333">recoverable failure</text>
+<rect x="476.0" y="314.0" width="11" height="11" fill="#a32020" />
+<text x="492.0" y="323.0" fill="#333">unrecoverable failure</text>
+</svg>
+
+<h4 id="turn-taking">Turn-taking</h4>
+
+<p>In addition to success rate, we track metrics for conversational fluency - how often does the agent interrupt the customer or fail to respond:
+An <strong>interruption</strong> is a clear case where the agent began speaking while a customer clip was still mid-utterance (agent VAD speech-start during customer audio). <strong>No response</strong> counts clips after which the agent stayed silent past the 8-second clipPlayer watchdog.</p>
+
+<svg viewBox="0 0 720 380" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:720px;font:11px sans-serif;display:block;margin:8px 0;">
+<text x="60" y="14" font-weight="700" fill="#222">Turn-taking failure rates · % of customer-clip plays (deterministic VAD)</text>
+<line x1="60" x2="704" y1="280.0" y2="280.0" stroke="#eee" />
+<text x="54" y="283.0" text-anchor="end" fill="#666">0%</text>
+<line x1="60" x2="704" y1="238.0" y2="238.0" stroke="#eee" />
+<text x="54" y="241.0" text-anchor="end" fill="#666">2%</text>
+<line x1="60" x2="704" y1="196.0" y2="196.0" stroke="#eee" />
+<text x="54" y="199.0" text-anchor="end" fill="#666">4%</text>
+<line x1="60" x2="704" y1="154.0" y2="154.0" stroke="#eee" />
+<text x="54" y="157.0" text-anchor="end" fill="#666">6%</text>
+<line x1="60" x2="704" y1="112.0" y2="112.0" stroke="#eee" />
+<text x="54" y="115.0" text-anchor="end" fill="#666">8%</text>
+<line x1="60" x2="704" y1="70.0" y2="70.0" stroke="#eee" />
+<text x="54" y="73.0" text-anchor="end" fill="#666">10%</text>
+<line x1="60" x2="704" y1="28.0" y2="28.0" stroke="#eee" />
+<text x="54" y="31.0" text-anchor="end" fill="#666">12%</text>
+<line x1="60" x2="704" y1="280.0" y2="280.0" stroke="#333" />
+<rect x="91.5" y="221.2" width="45" height="58.8" fill="#c0392b"><title>OAI: 21 clear interruptions / 754 clips (2.8%)</title></rect>
+<text x="114.0" y="216.2" text-anchor="middle" fill="#333" font-weight="600">2.8% (21)</text>
+<rect x="144.5" y="223.3" width="45" height="56.7" fill="#888888"><title>OAI: no response on 2.7% of 754 clips</title></rect>
+<text x="167.0" y="218.3" text-anchor="middle" fill="#333" font-weight="600">2.7% (20)</text>
+<text x="140.5" y="298.0" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
+<text x="140.5" y="314.0" text-anchor="middle" fill="#666" font-size="10">754 clips · med lat 2.9s</text>
+<rect x="252.5" y="240.1" width="45" height="39.9" fill="#c0392b"><title>GEM: 19 clear interruptions / 981 clips (1.9%)</title></rect>
+<text x="275.0" y="235.1" text-anchor="middle" fill="#333" font-weight="600">1.9% (19)</text>
+<rect x="305.5" y="91.0" width="45" height="189.0" fill="#888888"><title>GEM: no response on 9.0% of 981 clips</title></rect>
+<text x="328.0" y="86.0" text-anchor="middle" fill="#333" font-weight="600">9.0% (88)</text>
+<text x="301.5" y="298.0" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
+<text x="301.5" y="314.0" text-anchor="middle" fill="#666" font-size="10">981 clips · med lat 2.78s</text>
+<rect x="413.5" y="275.8" width="45" height="4.2" fill="#c0392b"><title>CAS: 2 clear interruptions / 1066 clips (0.2%)</title></rect>
+<text x="436.0" y="270.8" text-anchor="middle" fill="#333" font-weight="600">0.2% (2)</text>
+<rect x="466.5" y="196.0" width="45" height="84.0" fill="#888888"><title>CAS: no response on 4.0% of 1066 clips</title></rect>
+<text x="489.0" y="191.0" text-anchor="middle" fill="#333" font-weight="600">4.0% (43)</text>
+<text x="462.5" y="298.0" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
+<text x="462.5" y="314.0" text-anchor="middle" fill="#666" font-size="10">1066 clips · med lat 5.12s</text>
+<rect x="574.5" y="252.7" width="45" height="27.3" fill="#c0392b"><title>GROK: 12 clear interruptions / 924 clips (1.3%)</title></rect>
+<text x="597.0" y="247.7" text-anchor="middle" fill="#333" font-weight="600">1.3% (12)</text>
+<rect x="627.5" y="88.9" width="45" height="191.1" fill="#888888"><title>GROK: no response on 9.1% of 924 clips</title></rect>
+<text x="650.0" y="83.9" text-anchor="middle" fill="#333" font-weight="600">9.1% (84)</text>
+<text x="623.5" y="298.0" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
+<text x="623.5" y="314.0" text-anchor="middle" fill="#666" font-size="10">924 clips · med lat 2.32s</text>
+<rect x="60.0" y="342.0" width="11" height="11" fill="#c0392b" />
+<text x="76.0" y="351.0" fill="#333">interrupted customer clip (agent talked over customer audio)</text>
+<rect x="390.0" y="342.0" width="11" height="11" fill="#888888" />
+<text x="406.0" y="351.0" fill="#333">no agent response after customer clip ended</text>
+</svg>
+
+<h4 id="timing-metrics">Timing metrics</h4>
+
+<p>In addition to the turn-taking metrics, we also look at timing statistics:</p>
+<ul>
+  <li>Latency: how long after a clip ends does it take for the agent to respond (measured from the customer’s last audio frame to the agent’s first speech token)</li>
+  <li>Response Duration: Once the agent starts speaking, how long does it talk until it hands the concersation back over to the customer?</li>
+  <li>Game duration: How long does it take to complete the conversation? (wall time from the end of the agent’s first turn to the last speech event, minus customer-side pauses)
+Averages are computed over the all-pass intersection (tasks where every model scored 1.0) so that we filter out cases where the model went off-policy. Game duration captures both the time spent per turn and the total number of turns. A model which quickly responds to each question but takes extra turns meandering through unnecessary questions can lead to a worse experience than a model which takes more time to think for each turn but asks targeted questions which lead to a conclusion faster.</li>
+</ul>
+
+<table>
+  <thead>
+    <tr>
+      <th>metric</th>
+      <th style="text-align: right">OAI</th>
+      <th style="text-align: right">GROK</th>
+      <th style="text-align: right">GEM</th>
+      <th style="text-align: right">CAS</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>avg response latency</td>
+      <td style="text-align: right">2.57s</td>
+      <td style="text-align: right">2.31s</td>
+      <td style="text-align: right">2.16s</td>
+      <td style="text-align: right">4.59s</td>
+    </tr>
+    <tr>
+      <td>avg response duration</td>
+      <td style="text-align: right">4.65s</td>
+      <td style="text-align: right">4.78s</td>
+      <td style="text-align: right">2.68s</td>
+      <td style="text-align: right">4.10s</td>
+    </tr>
+    <tr>
+      <td>avg game duration</td>
+      <td style="text-align: right">41.11s</td>
+      <td style="text-align: right">46.19s</td>
+      <td style="text-align: right">35.65s</td>
+      <td style="text-align: right">60.69s</td>
+    </tr>
+    <tr>
+      <td>avg human baseline (recording duration)</td>
+      <td style="text-align: right">25.58s</td>
+      <td style="text-align: right">—</td>
+      <td style="text-align: right">—</td>
+      <td style="text-align: right">—</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4 id="failure-tag-breakdown">Failure-tag breakdown</h4>
+
+<p>Imperfect-run cart-diff tags are split into three plots. <strong>Silent adds/swaps</strong> — the agent committed a wrong/extra value to the cart without ever speaking it back; the customer had no way to catch the mistake. <strong>Read-back adds/swaps</strong> — the agent verbalized the value but the value was wrong, so the failure mode is reasoning/transcription rather than silent mis-tool-use. <strong>Missing items</strong> — items the agent never added at all, with the customer absorbing a follow-up burden.</p>
+
+<p>Tag totals are occurrence counts — a single imperfect run can sit in more than one plot if its cart diff carries multiple categories.</p>
+
+<svg viewBox="0 0 720 540" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:720px;font:11px sans-serif;display:block;margin:8px 0;">
+<text x="50" y="14" font-weight="700" fill="#222">Silent issues · agent committed without verbalizing (occurrences)</text>
+<line x1="50" x2="704" y1="382.0" y2="382.0" stroke="#eee" />
+<text x="44" y="385.0" text-anchor="end" fill="#666">0</text>
+<line x1="50" x2="704" y1="331.4" y2="331.4" stroke="#eee" />
+<text x="44" y="334.4" text-anchor="end" fill="#666">5</text>
+<line x1="50" x2="704" y1="280.9" y2="280.9" stroke="#eee" />
+<text x="44" y="283.9" text-anchor="end" fill="#666">10</text>
+<line x1="50" x2="704" y1="230.3" y2="230.3" stroke="#eee" />
+<text x="44" y="233.3" text-anchor="end" fill="#666">15</text>
+<line x1="50" x2="704" y1="179.7" y2="179.7" stroke="#eee" />
+<text x="44" y="182.7" text-anchor="end" fill="#666">20</text>
+<line x1="50" x2="704" y1="129.1" y2="129.1" stroke="#eee" />
+<text x="44" y="132.1" text-anchor="end" fill="#666">25</text>
+<line x1="50" x2="704" y1="78.6" y2="78.6" stroke="#eee" />
+<text x="44" y="81.6" text-anchor="end" fill="#666">30</text>
+<line x1="50" x2="704" y1="28.0" y2="28.0" stroke="#eee" />
+<text x="44" y="31.0" text-anchor="end" fill="#666">35</text>
+<line x1="50" x2="704" y1="382.0" y2="382.0" stroke="#333" />
+<rect x="116.8" y="331.4" width="80" height="50.6" fill="#1f3a78" stroke="#fff" stroke-width="1"><title>OAI · extra · preemptive (VAD fired pre-customer): 5</title></rect>
+<text x="156.8" y="360.7" text-anchor="middle" fill="#fff" font-weight="600">5</text>
+<rect x="116.8" y="159.5" width="80" height="171.9" fill="#3a5fb0" stroke="#fff" stroke-width="1"><title>OAI · extra · silent: 17</title></rect>
+<text x="156.8" y="249.5" text-anchor="middle" fill="#fff" font-weight="600">17</text>
+<rect x="116.8" y="98.8" width="80" height="60.7" fill="#7a3aa8" stroke="#fff" stroke-width="1"><title>OAI · wrong-item · silent: 6</title></rect>
+<text x="156.8" y="133.1" text-anchor="middle" fill="#fff" font-weight="600">6</text>
+<rect x="116.8" y="28.0" width="80" height="70.8" fill="#c89df0" stroke="#fff" stroke-width="1"><title>OAI · wrong-option-or-variant · silent: 7</title></rect>
+<text x="156.8" y="67.4" text-anchor="middle" fill="#fff" font-weight="600">7</text>
+<text x="156.8" y="22.0" text-anchor="middle" fill="#222" font-weight="700">35</text>
+<text x="156.8" y="400.0" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
+<rect x="263.6" y="311.2" width="80" height="70.8" fill="#3a5fb0" stroke="#fff" stroke-width="1"><title>GEM · extra · silent: 7</title></rect>
+<text x="303.6" y="350.6" text-anchor="middle" fill="#fff" font-weight="600">7</text>
+<rect x="263.6" y="250.5" width="80" height="60.7" fill="#c89df0" stroke="#fff" stroke-width="1"><title>GEM · wrong-option-or-variant · silent: 6</title></rect>
+<text x="303.6" y="284.9" text-anchor="middle" fill="#fff" font-weight="600">6</text>
+<text x="303.6" y="244.5" text-anchor="middle" fill="#222" font-weight="700">13</text>
+<text x="303.6" y="400.0" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
+<rect x="410.4" y="371.9" width="80" height="10.1" fill="#1f3a78" stroke="#fff" stroke-width="1"><title>CAS · extra · preemptive (VAD fired pre-customer): 1</title></rect>
+<rect x="410.4" y="361.8" width="80" height="10.1" fill="#3a5fb0" stroke="#fff" stroke-width="1"><title>CAS · extra · silent: 1</title></rect>
+<rect x="410.4" y="341.5" width="80" height="20.2" fill="#7a3aa8" stroke="#fff" stroke-width="1"><title>CAS · wrong-item · silent: 2</title></rect>
+<text x="450.4" y="355.7" text-anchor="middle" fill="#fff" font-weight="600">2</text>
+<rect x="410.4" y="250.5" width="80" height="91.0" fill="#c89df0" stroke="#fff" stroke-width="1"><title>CAS · wrong-option-or-variant · silent: 9</title></rect>
+<text x="450.4" y="300.0" text-anchor="middle" fill="#fff" font-weight="600">9</text>
+<text x="450.4" y="244.5" text-anchor="middle" fill="#222" font-weight="700">13</text>
+<text x="450.4" y="400.0" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
+<rect x="557.2" y="361.8" width="80" height="20.2" fill="#3a5fb0" stroke="#fff" stroke-width="1"><title>GROK · extra · silent: 2</title></rect>
+<text x="597.2" y="375.9" text-anchor="middle" fill="#fff" font-weight="600">2</text>
+<rect x="557.2" y="331.4" width="80" height="30.3" fill="#c89df0" stroke="#fff" stroke-width="1"><title>GROK · wrong-option-or-variant · silent: 3</title></rect>
+<text x="597.2" y="350.6" text-anchor="middle" fill="#fff" font-weight="600">3</text>
+<text x="597.2" y="325.4" text-anchor="middle" fill="#222" font-weight="700">5</text>
+<text x="597.2" y="400.0" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
+<rect x="50.0" y="426.0" width="11" height="11" fill="#1f3a78" />
+<text x="66.0" y="435.0" fill="#333">extra · preemptive (VAD fired pre-customer)</text>
+<rect x="310.0" y="426.0" width="11" height="11" fill="#3a5fb0" />
+<text x="326.0" y="435.0" fill="#333">extra · silent</text>
+<rect x="570.0" y="426.0" width="11" height="11" fill="#7a3aa8" />
+<text x="586.0" y="435.0" fill="#333">wrong-item · silent</text>
+<rect x="50.0" y="444.0" width="11" height="11" fill="#c89df0" />
+<text x="66.0" y="453.0" fill="#333">wrong-option-or-variant · silent</text>
+</svg>
+
+<p><strong>Preemptive item add</strong> — it fires when the server-side VAD tripped <em>before</em> the first customer clip even played, meaning the agent emitted a tool call without having heard the customer at all. Most preemptives ride alongside an <code class="language-plaintext highlighter-rouge">extra-item</code> tag (the fabricated item) but the same audio condition can produce a <code class="language-plaintext highlighter-rouge">wrong-item</code> instead, so the preemptive bands are split out across both.</p>
+
+<p>The three item-level cart-diff categories cover distinct kinds of mismatch:</p>
+<ul>
+  <li><strong>extra-item</strong> — the agent added an item the customer never ordered, in addition to the expected items. The cart contains more rows than it should. (<strong>unrecoverable</strong> if silent else <strong>recoverable</strong>)</li>
+  <li><strong>wrong-item</strong> — the agent ordered something <em>instead of</em> the right item; the row count is right but the menu base_id (the catalog identity, e.g. “burger” vs “chicken sandwich”) doesn’t match.  (<strong>unrecoverable</strong> if silent else <strong>recoverable</strong>*)</li>
+  <li><strong>wrong-option-or-variant</strong> — the base_id matches but a required option (e.g. size, spice, sauce) or a price-bearing variant resolved to the wrong value. The agent picked the right thing on the menu but not the right configuration of it.  (<strong>unrecoverable</strong> if silent else <strong>recoverable</strong>)</li>
+</ul>
+
+<svg viewBox="0 0 720 540" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:720px;font:11px sans-serif;display:block;margin:8px 0;">
+<text x="50" y="14" font-weight="700" fill="#222">Read-back issues · agent verbalized but value was wrong (occurrences)</text>
+<line x1="50" x2="704" y1="382.0" y2="382.0" stroke="#eee" />
+<text x="44" y="385.0" text-anchor="end" fill="#666">0</text>
+<line x1="50" x2="704" y1="331.4" y2="331.4" stroke="#eee" />
+<text x="44" y="334.4" text-anchor="end" fill="#666">6</text>
+<line x1="50" x2="704" y1="280.9" y2="280.9" stroke="#eee" />
+<text x="44" y="283.9" text-anchor="end" fill="#666">11</text>
+<line x1="50" x2="704" y1="230.3" y2="230.3" stroke="#eee" />
+<text x="44" y="233.3" text-anchor="end" fill="#666">17</text>
+<line x1="50" x2="704" y1="179.7" y2="179.7" stroke="#eee" />
+<text x="44" y="182.7" text-anchor="end" fill="#666">23</text>
+<line x1="50" x2="704" y1="129.1" y2="129.1" stroke="#eee" />
+<text x="44" y="132.1" text-anchor="end" fill="#666">29</text>
+<line x1="50" x2="704" y1="78.6" y2="78.6" stroke="#eee" />
+<text x="44" y="81.6" text-anchor="end" fill="#666">34</text>
+<line x1="50" x2="704" y1="28.0" y2="28.0" stroke="#eee" />
+<text x="44" y="31.0" text-anchor="end" fill="#666">40</text>
+<line x1="50" x2="704" y1="382.0" y2="382.0" stroke="#333" />
+<rect x="116.8" y="337.8" width="80" height="44.2" fill="#216e62" stroke="#fff" stroke-width="1"><title>OAI · extra · read-back · preemptive: 5</title></rect>
+<text x="156.8" y="363.9" text-anchor="middle" fill="#fff" font-weight="600">5</text>
+<rect x="116.8" y="205.0" width="80" height="132.8" fill="#3aa898" stroke="#fff" stroke-width="1"><title>OAI · extra · read-back: 15</title></rect>
+<text x="156.8" y="275.4" text-anchor="middle" fill="#fff" font-weight="600">15</text>
+<rect x="116.8" y="125.4" width="80" height="79.6" fill="#a35a1e" stroke="#fff" stroke-width="1"><title>OAI · wrong-item · read-back: 9</title></rect>
+<text x="156.8" y="169.2" text-anchor="middle" fill="#fff" font-weight="600">9</text>
+<rect x="116.8" y="36.9" width="80" height="88.5" fill="#e0a070" stroke="#fff" stroke-width="1"><title>OAI · wrong-option-or-variant · read-back: 10</title></rect>
+<text x="156.8" y="85.1" text-anchor="middle" fill="#fff" font-weight="600">10</text>
+<text x="156.8" y="30.9" text-anchor="middle" fill="#222" font-weight="700">39</text>
+<text x="156.8" y="400.0" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
+<rect x="263.6" y="302.4" width="80" height="79.6" fill="#3aa898" stroke="#fff" stroke-width="1"><title>GEM · extra · read-back: 9</title></rect>
+<text x="303.6" y="346.2" text-anchor="middle" fill="#fff" font-weight="600">9</text>
+<rect x="263.6" y="284.6" width="80" height="17.7" fill="#a35a1e" stroke="#fff" stroke-width="1"><title>GEM · wrong-item · read-back: 2</title></rect>
+<text x="303.6" y="297.5" text-anchor="middle" fill="#fff" font-weight="600">2</text>
+<rect x="263.6" y="178.5" width="80" height="106.2" fill="#e0a070" stroke="#fff" stroke-width="1"><title>GEM · wrong-option-or-variant · read-back: 12</title></rect>
+<text x="303.6" y="235.6" text-anchor="middle" fill="#fff" font-weight="600">12</text>
+<text x="303.6" y="172.5" text-anchor="middle" fill="#222" font-weight="700">23</text>
+<text x="303.6" y="400.0" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
+<rect x="410.4" y="311.2" width="80" height="70.8" fill="#3aa898" stroke="#fff" stroke-width="1"><title>CAS · extra · read-back: 8</title></rect>
+<text x="450.4" y="350.6" text-anchor="middle" fill="#fff" font-weight="600">8</text>
+<rect x="410.4" y="302.4" width="80" height="8.8" fill="#a35a1e" stroke="#fff" stroke-width="1"><title>CAS · wrong-item · read-back: 1</title></rect>
+<rect x="410.4" y="187.3" width="80" height="115.1" fill="#e0a070" stroke="#fff" stroke-width="1"><title>CAS · wrong-option-or-variant · read-back: 13</title></rect>
+<text x="450.4" y="248.8" text-anchor="middle" fill="#fff" font-weight="600">13</text>
+<text x="450.4" y="181.3" text-anchor="middle" fill="#222" font-weight="700">22</text>
+<text x="450.4" y="400.0" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
+<rect x="557.2" y="178.5" width="80" height="203.5" fill="#3aa898" stroke="#fff" stroke-width="1"><title>GROK · extra · read-back: 23</title></rect>
+<text x="597.2" y="284.2" text-anchor="middle" fill="#fff" font-weight="600">23</text>
+<rect x="557.2" y="81.1" width="80" height="97.3" fill="#e0a070" stroke="#fff" stroke-width="1"><title>GROK · wrong-option-or-variant · read-back: 11</title></rect>
+<text x="597.2" y="133.8" text-anchor="middle" fill="#fff" font-weight="600">11</text>
+<text x="597.2" y="75.1" text-anchor="middle" fill="#222" font-weight="700">34</text>
+<text x="597.2" y="400.0" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
+<rect x="50.0" y="426.0" width="11" height="11" fill="#216e62" />
+<text x="66.0" y="435.0" fill="#333">extra · read-back · preemptive</text>
+<rect x="310.0" y="426.0" width="11" height="11" fill="#3aa898" />
+<text x="326.0" y="435.0" fill="#333">extra · read-back</text>
+<rect x="570.0" y="426.0" width="11" height="11" fill="#a35a1e" />
+<text x="586.0" y="435.0" fill="#333">wrong-item · read-back</text>
+<rect x="50.0" y="444.0" width="11" height="11" fill="#e0a070" />
+<text x="66.0" y="453.0" fill="#333">wrong-option-or-variant · read-back</text>
+</svg>
+
+<p>The bands carry the same three item-level categories as the silent plot — <code class="language-plaintext highlighter-rouge">extra-item</code>, <code class="language-plaintext highlighter-rouge">wrong-item</code>, <code class="language-plaintext highlighter-rouge">wrong-option-or-variant</code>, plus the <code class="language-plaintext highlighter-rouge">preemptive</code> split on the extras. The difference is that here the agent <em>spoke</em> the wrong value (e.g. read back the cart, repeated the item, or summarized) before or after committing. Read-back failures are typically easier for a downstream system to flag because the audio transcript records the agent’s belief, whereas silent failures only appear when the cart is inspected.</p>
+
+<svg viewBox="0 0 720 540" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:720px;font:11px sans-serif;display:block;margin:8px 0;">
+<text x="50" y="14" font-weight="700" fill="#222">Missing-item failures (occurrences)</text>
+<line x1="50" x2="704" y1="382.0" y2="382.0" stroke="#eee" />
+<text x="44" y="385.0" text-anchor="end" fill="#666">0</text>
+<line x1="50" x2="704" y1="323.0" y2="323.0" stroke="#eee" />
+<text x="44" y="326.0" text-anchor="end" fill="#666">15</text>
+<line x1="50" x2="704" y1="264.0" y2="264.0" stroke="#eee" />
+<text x="44" y="267.0" text-anchor="end" fill="#666">30</text>
+<line x1="50" x2="704" y1="205.0" y2="205.0" stroke="#eee" />
+<text x="44" y="208.0" text-anchor="end" fill="#666">45</text>
+<line x1="50" x2="704" y1="146.0" y2="146.0" stroke="#eee" />
+<text x="44" y="149.0" text-anchor="end" fill="#666">60</text>
+<line x1="50" x2="704" y1="87.0" y2="87.0" stroke="#eee" />
+<text x="44" y="90.0" text-anchor="end" fill="#666">75</text>
+<line x1="50" x2="704" y1="28.0" y2="28.0" stroke="#eee" />
+<text x="44" y="31.0" text-anchor="end" fill="#666">90</text>
+<line x1="50" x2="704" y1="382.0" y2="382.0" stroke="#333" />
+<rect x="116.8" y="374.1" width="80" height="7.9" fill="#5a0e0e" stroke="#fff" stroke-width="1"><title>OAI · not-detected (main clip played, 8s watchdog): 2</title></rect>
+<rect x="116.8" y="323.0" width="80" height="51.1" fill="#8b1818" stroke="#fff" stroke-width="1"><title>OAI · premature submit: 13</title></rect>
+<text x="156.8" y="352.6" text-anchor="middle" fill="#fff" font-weight="600">13</text>
+<rect x="116.8" y="311.2" width="80" height="11.8" fill="#a32020" stroke="#fff" stroke-width="1"><title>OAI · clarify abandoned: 3</title></rect>
+<rect x="116.8" y="307.3" width="80" height="3.9" fill="#c44848" stroke="#fff" stroke-width="1"><title>OAI · compound line: 1</title></rect>
+<rect x="116.8" y="283.7" width="80" height="23.6" fill="#dd8888" stroke="#fff" stroke-width="1"><title>OAI · other / unattributed: 6</title></rect>
+<text x="156.8" y="299.5" text-anchor="middle" fill="#fff" font-weight="600">6</text>
+<rect x="116.8" y="279.7" width="80" height="3.9" fill="#7a3a0a" stroke="#fff" stroke-width="1"><title>OAI · missing-answer · off-policy ask: 1</title></rect>
+<rect x="116.8" y="275.8" width="80" height="3.9" fill="#e0a070" stroke="#fff" stroke-width="1"><title>OAI · missing-answer · unaudited: 1</title></rect>
+<text x="156.8" y="269.8" text-anchor="middle" fill="#222" font-weight="700">27</text>
+<text x="156.8" y="400.0" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
+<rect x="263.6" y="275.8" width="80" height="106.2" fill="#5a0e0e" stroke="#fff" stroke-width="1"><title>GEM · not-detected (main clip played, 8s watchdog): 27</title></rect>
+<text x="303.6" y="332.9" text-anchor="middle" fill="#fff" font-weight="600">27</text>
+<rect x="263.6" y="260.1" width="80" height="15.7" fill="#8b1818" stroke="#fff" stroke-width="1"><title>GEM · premature submit: 4</title></rect>
+<text x="303.6" y="271.9" text-anchor="middle" fill="#fff" font-weight="600">4</text>
+<rect x="263.6" y="224.7" width="80" height="35.4" fill="#a32020" stroke="#fff" stroke-width="1"><title>GEM · clarify abandoned: 9</title></rect>
+<text x="303.6" y="246.4" text-anchor="middle" fill="#fff" font-weight="600">9</text>
+<rect x="263.6" y="205.0" width="80" height="19.7" fill="#c44848" stroke="#fff" stroke-width="1"><title>GEM · compound line: 5</title></rect>
+<text x="303.6" y="218.8" text-anchor="middle" fill="#fff" font-weight="600">5</text>
+<rect x="263.6" y="106.7" width="80" height="98.3" fill="#dd8888" stroke="#fff" stroke-width="1"><title>GEM · other / unattributed: 25</title></rect>
+<text x="303.6" y="159.8" text-anchor="middle" fill="#fff" font-weight="600">25</text>
+<rect x="263.6" y="98.8" width="80" height="7.9" fill="#7a3a0a" stroke="#fff" stroke-width="1"><title>GEM · missing-answer · off-policy ask: 2</title></rect>
+<rect x="263.6" y="90.9" width="80" height="7.9" fill="#c2691c" stroke="#fff" stroke-width="1"><title>GEM · missing-answer · on-policy: 2</title></rect>
+<rect x="263.6" y="87.0" width="80" height="3.9" fill="#e0a070" stroke="#fff" stroke-width="1"><title>GEM · missing-answer · unaudited: 1</title></rect>
+<text x="303.6" y="81.0" text-anchor="middle" fill="#222" font-weight="700">75</text>
+<text x="303.6" y="400.0" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
+<rect x="410.4" y="346.6" width="80" height="35.4" fill="#5a0e0e" stroke="#fff" stroke-width="1"><title>CAS · not-detected (main clip played, 8s watchdog): 9</title></rect>
+<text x="450.4" y="368.3" text-anchor="middle" fill="#fff" font-weight="600">9</text>
+<rect x="410.4" y="267.9" width="80" height="78.7" fill="#8b1818" stroke="#fff" stroke-width="1"><title>CAS · premature submit: 20</title></rect>
+<text x="450.4" y="311.3" text-anchor="middle" fill="#fff" font-weight="600">20</text>
+<rect x="410.4" y="240.4" width="80" height="27.5" fill="#a32020" stroke="#fff" stroke-width="1"><title>CAS · clarify abandoned: 7</title></rect>
+<text x="450.4" y="258.2" text-anchor="middle" fill="#fff" font-weight="600">7</text>
+<rect x="410.4" y="236.5" width="80" height="3.9" fill="#c44848" stroke="#fff" stroke-width="1"><title>CAS · compound line: 1</title></rect>
+<rect x="410.4" y="181.4" width="80" height="55.1" fill="#dd8888" stroke="#fff" stroke-width="1"><title>CAS · other / unattributed: 14</title></rect>
+<text x="450.4" y="212.9" text-anchor="middle" fill="#fff" font-weight="600">14</text>
+<rect x="410.4" y="114.5" width="80" height="66.9" fill="#7a3a0a" stroke="#fff" stroke-width="1"><title>CAS · missing-answer · off-policy ask: 17</title></rect>
+<text x="450.4" y="152.0" text-anchor="middle" fill="#fff" font-weight="600">17</text>
+<rect x="410.4" y="106.7" width="80" height="7.9" fill="#c2691c" stroke="#fff" stroke-width="1"><title>CAS · missing-answer · on-policy: 2</title></rect>
+<rect x="410.4" y="94.9" width="80" height="11.8" fill="#e0a070" stroke="#fff" stroke-width="1"><title>CAS · missing-answer · unaudited: 3</title></rect>
+<text x="450.4" y="88.9" text-anchor="middle" fill="#222" font-weight="700">73</text>
+<text x="450.4" y="400.0" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
+<rect x="557.2" y="358.4" width="80" height="23.6" fill="#5a0e0e" stroke="#fff" stroke-width="1"><title>GROK · not-detected (main clip played, 8s watchdog): 6</title></rect>
+<text x="597.2" y="374.2" text-anchor="middle" fill="#fff" font-weight="600">6</text>
+<rect x="557.2" y="319.1" width="80" height="39.3" fill="#8b1818" stroke="#fff" stroke-width="1"><title>GROK · premature submit: 10</title></rect>
+<text x="597.2" y="342.7" text-anchor="middle" fill="#fff" font-weight="600">10</text>
+<rect x="557.2" y="248.3" width="80" height="70.8" fill="#a32020" stroke="#fff" stroke-width="1"><title>GROK · clarify abandoned: 18</title></rect>
+<text x="597.2" y="287.7" text-anchor="middle" fill="#fff" font-weight="600">18</text>
+<rect x="557.2" y="220.7" width="80" height="27.5" fill="#c44848" stroke="#fff" stroke-width="1"><title>GROK · compound line: 7</title></rect>
+<text x="597.2" y="238.5" text-anchor="middle" fill="#fff" font-weight="600">7</text>
+<rect x="557.2" y="126.3" width="80" height="94.4" fill="#dd8888" stroke="#fff" stroke-width="1"><title>GROK · other / unattributed: 24</title></rect>
+<text x="597.2" y="177.5" text-anchor="middle" fill="#fff" font-weight="600">24</text>
+<rect x="557.2" y="110.6" width="80" height="15.7" fill="#7a3a0a" stroke="#fff" stroke-width="1"><title>GROK · missing-answer · off-policy ask: 4</title></rect>
+<text x="597.2" y="122.5" text-anchor="middle" fill="#fff" font-weight="600">4</text>
+<rect x="557.2" y="83.1" width="80" height="27.5" fill="#c2691c" stroke="#fff" stroke-width="1"><title>GROK · missing-answer · on-policy: 7</title></rect>
+<text x="597.2" y="100.8" text-anchor="middle" fill="#fff" font-weight="600">7</text>
+<text x="597.2" y="77.1" text-anchor="middle" fill="#222" font-weight="700">76</text>
+<text x="597.2" y="400.0" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
+<rect x="50.0" y="426.0" width="11" height="11" fill="#5a0e0e" />
+<text x="66.0" y="435.0" fill="#333">not-detected (main clip played, 8s watchdog)</text>
+<rect x="310.0" y="426.0" width="11" height="11" fill="#8b1818" />
+<text x="326.0" y="435.0" fill="#333">premature submit</text>
+<rect x="570.0" y="426.0" width="11" height="11" fill="#a32020" />
+<text x="586.0" y="435.0" fill="#333">clarify abandoned</text>
+<rect x="50.0" y="444.0" width="11" height="11" fill="#c44848" />
+<text x="66.0" y="453.0" fill="#333">compound line</text>
+<rect x="310.0" y="444.0" width="11" height="11" fill="#dd8888" />
+<text x="326.0" y="453.0" fill="#333">other / unattributed</text>
+<rect x="570.0" y="444.0" width="11" height="11" fill="#7a3a0a" />
+<text x="586.0" y="453.0" fill="#333">missing-answer · off-policy ask</text>
+<rect x="50.0" y="462.0" width="11" height="11" fill="#c2691c" />
+<text x="66.0" y="471.0" fill="#333">missing-answer · on-policy</text>
+<rect x="310.0" y="462.0" width="11" height="11" fill="#e0a070" />
+<text x="326.0" y="471.0" fill="#333">missing-answer · unaudited</text>
+</svg>
+
+<p>A missing item is a row in the expected cart that the agent never added. The plot bands name the <em>reason</em> the post-eval auditors landed on for that omission:</p>
+
+<ul>
+  <li><strong>not-detected</strong> — the missing item’s main customer clip played in full, then the agent stayed silent until the clipPlayer’s 8-second watchdog force-kicked the session. This is the “didn’t hear it” failure: VAD never tripped or the model couldn’t parse the utterance into a tool call. (<strong>unrecoverable</strong>)</li>
+  <li><strong>premature submit</strong> — the agent emitted <code class="language-plaintext highlighter-rouge">submit_order</code> before all expected items had been added. Common shape: the customer was still mid-list when the agent took the silence between items as end-of-order. (<strong>recoverable</strong> a more well-equipped agent would be able to un-submit and add new items if the customer clearly communicated more items)</li>
+  <li><strong>clarify abandoned</strong> — the agent asked a clarifying question about the missing item, the conversation moved on (often because the customer’s answer didn’t route back to that item), and the item was never added. The agent recognized the item existed but lost the thread. (<strong>recoverable</strong> , a real customer might respond to the question before asking for their next item)</li>
+  <li><strong>compound line</strong> — the customer named multiple items in a single utterance and the agent only captured some of them. The audio for the missing item is present but co-located with audio that <em>was</em> handled. (<strong>unrecoverable</strong>)</li>
+  <li><strong>other / unattributed</strong> — the auditor ran but couldn’t fit the failure into any of the categories above. Includes mixed cases (e.g. an interrupted clarify that’s hard to label) and idiosyncratic agent behavior that doesn’t have a named bucket yet. (marked <strong>recoverable</strong> since there’s no clear reason to say it wouldn’t be recovered)</li>
+</ul>
+
+<p>The <code class="language-plaintext highlighter-rouge">missing-answer</code> bands cover a related-but-distinct failure mode: the customer clipPlayer ran out of clips to play because the agent kept asking a question the clip library couldn’t answer, then auto-submitted the order. The item is missing because the agent was stalled, not because the agent missed the customer’s request. We mark these conversations as <strong>recoverable</strong> since the failure was with the customer limitations, not the agent.</p>
+
+<ul>
+  <li><strong>missing-answer · off-policy ask</strong> — the agent stalled by asking about an option that policy says shouldn’t be asked (an option group with a default value, or an optional group). The agent’s question is the bug.</li>
+  <li><strong>missing-answer · on-policy</strong> — the agent’s question was legitimate (required group, no default) but the clip library happened not to carry a customer-side answer for that specific ask. The gap is in the dataset, not the agent.</li>
+</ul>
+
+<h4 id="malformed-tool-calls">Malformed tool calls</h4>
+
+<p>When the agent issues an invalid tool call — unknown <code class="language-plaintext highlighter-rouge">item_id</code>, options that don’t match the menu schema, an unknown tool name, or malformed JSON — the tool server returns <code class="language-plaintext highlighter-rouge">ok: false</code> with an error message. The metric below counts the share of stages where the model emitted at least one such call; one bad call followed by a clean retry is enough to flag the stage.</p>
+
+<svg viewBox="0 0 720 280" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:720px;font:11px sans-serif;display:block;margin:8px 0;">
+<text x="50" y="14" font-weight="700" fill="#222">Malformed tool call rate · share of stages with ≥1 ok=false response (of 254 tasks)</text>
+<line x1="50" x2="704" y1="210.0" y2="210.0" stroke="#eee" />
+<text x="44" y="213.0" text-anchor="end" fill="#666">0%</text>
+<line x1="50" x2="704" y1="149.3" y2="149.3" stroke="#eee" />
+<text x="44" y="152.3" text-anchor="end" fill="#666">5%</text>
+<line x1="50" x2="704" y1="88.7" y2="88.7" stroke="#eee" />
+<text x="44" y="91.7" text-anchor="end" fill="#666">10%</text>
+<line x1="50" x2="704" y1="28.0" y2="28.0" stroke="#eee" />
+<text x="44" y="31.0" text-anchor="end" fill="#666">15%</text>
+<line x1="50" x2="704" y1="210.0" y2="210.0" stroke="#333" />
+<rect x="116.8" y="195.7" width="80" height="14.3" fill="#c75300" stroke="#fff" stroke-width="1"><title>OAI: 3 / 254 stages (1.2%)</title></rect>
+<text x="156.8" y="190.7" text-anchor="middle" fill="#222" font-weight="700">1.2%</text>
+<text x="156.8" y="228.0" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
+<text x="156.8" y="242.0" text-anchor="middle" fill="#666">3 / 254</text>
+<rect x="263.6" y="109.7" width="80" height="100.3" fill="#c75300" stroke="#fff" stroke-width="1"><title>GEM: 21 / 254 stages (8.3%)</title></rect>
+<text x="303.6" y="104.7" text-anchor="middle" fill="#222" font-weight="700">8.3%</text>
+<text x="303.6" y="228.0" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
+<text x="303.6" y="242.0" text-anchor="middle" fill="#666">21 / 254</text>
+<rect x="410.4" y="152.7" width="80" height="57.3" fill="#c75300" stroke="#fff" stroke-width="1"><title>CAS: 12 / 254 stages (4.7%)</title></rect>
+<text x="450.4" y="147.7" text-anchor="middle" fill="#222" font-weight="700">4.7%</text>
+<text x="450.4" y="228.0" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
+<text x="450.4" y="242.0" text-anchor="middle" fill="#666">12 / 254</text>
+<rect x="557.2" y="152.7" width="80" height="57.3" fill="#c75300" stroke="#fff" stroke-width="1"><title>GROK: 12 / 254 stages (4.7%)</title></rect>
+<text x="597.2" y="147.7" text-anchor="middle" fill="#222" font-weight="700">4.7%</text>
+<text x="597.2" y="228.0" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
+<text x="597.2" y="242.0" text-anchor="middle" fill="#666">12 / 254</text>
+</svg>
+
+<h3 id="failure-modes">Failure modes</h3>
+
+<h4 id="background-noise-interpreted-as-speech">Background noise interpreted as speech</h4>
+
+<p>Agent fires on breathing or pre-speech (mouth sounds, etc.) and pre-emptively adds an item or interprets noise as a response to a required question.</p>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 32.403333333333336%;">Mild palak paneer</span><span class="clip-turn" style="left: 87.43666666666667%;">Butter chicken.</span></div><audio controls="" preload="auto" src="/assets/media/order_up.Piazza_Grill.AF85E2EC.g9.s0.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Piazza_Grill.AF85E2EC.g9.s0/20260608_120831/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Piazza_Grill.AF85E2EC.g9.s0/20260608_120831/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 54.53333333333333%;">▲</span>
+      <span class="clip-event-line" style="left: 54.53333333333333%; --row: 0;"></span>
+      <code class="clip-call" style="left: 54.53333333333333%; --row: 0;">add_to_cart(palak-paneer-mild)</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 8.616666666666667%;">Hi, welcome to Piazza Grill. What can I get started for you today?</span><span class="clip-turn" style="left: 44.95%;">I didn’t catch that. What would you like to order?</span><span class="clip-turn" style="left: 59.693333333333335%;">Got it. Anything else?</span><span class="clip-turn" style="left: 84.27333333333333%;">Sorry, I don’t recognize that item. What would you like to add?</span></div></div>
+</div>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 87.8125%;">Brisket plate pulled pork.</span></div><audio controls="" preload="auto" src="/assets/media/order_up.Ember_Oak.8D015AC7.g3.s0.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Ember_Oak.8D015AC7.g3.s0/20260605_110056/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Ember_Oak.8D015AC7.g3.s0/20260605_110056/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 72.4%;">▲</span>
+      <span class="clip-event-line" style="left: 72.4%; --row: 0;"></span>
+      <code class="clip-call" style="left: 72.4%; --row: 0;">add_to_cart(classic-burger)</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 26.6125%;">Hi there! What can I get you today?</span><span class="clip-turn" style="left: 84.2125%;">Got it. Anything else?</span></div></div>
+</div>
+
+<h4 id="customer-repeats-agent-double-adds">Customer repeats, agent double-adds</h4>
+
+<p>Customer repeats something they asked for when the agent doesn’t respond quickly or doesn’t acknowledge; agent sometimes adds the item twice.</p>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 12.177142857142858%;">Bagel with lox</span><span class="clip-turn" style="left: 45.55428571428571%;">Bagel with lox</span><span class="clip-turn" style="left: 90.20285714285714%;">No.</span></div><audio controls="" preload="auto" src="/assets/media/order_up.Maple_Street_Diner.F99C6C10.g0.s1.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Maple_Street_Diner.F99C6C10.g0.s1/20260608_120839/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Maple_Street_Diner.F99C6C10.g0.s1/20260608_120839/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 46.44571428571429%;">▲</span>
+      <span class="clip-event-line" style="left: 46.44571428571429%; --row: 0;"></span>
+      <code class="clip-call" style="left: 46.44571428571429%; --row: 0;">add_to_cart(bagel-lox)</code><span class="clip-arrow" style="left: 83.70857142857143%;">▲</span>
+      <span class="clip-event-line" style="left: 83.70857142857143%; --row: 1;"></span>
+      <code class="clip-call" style="left: 83.70857142857143%; --row: 1;">add_to_cart(bagel-lox)</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 45.24857142857143%;">OK, adding that.</span><span class="clip-turn" style="left: 49.57714285714286%;">Got it. Anything else?</span><span class="clip-turn" style="left: 82.45142857142856%;">OK, adding that too.</span><span class="clip-turn" style="left: 88.36%;">OK. Anything else?</span></div></div>
+</div>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 11.677142857142858%;">Grilled chicken?</span><span class="clip-turn" style="left: 44.705714285714286%;">Grilled chicken breast?</span><span class="clip-turn" style="left: 87.72571428571429%;">That's all, thanks.</span></div><audio controls="" preload="auto" src="/assets/media/order_up.Sunrise_Cafe.2D2653C7.g2.s0.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Sunrise_Cafe.2D2653C7.g2.s0/20260608_120830/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Sunrise_Cafe.2D2653C7.g2.s0/20260608_120830/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 42.394285714285715%;">▲</span>
+      <span class="clip-event-line" style="left: 42.394285714285715%; --row: 0;"></span>
+      <code class="clip-call" style="left: 42.394285714285715%; --row: 0;">add_to_cart(grilled-chicken-breast)</code><span class="clip-arrow" style="left: 81.04857142857144%;">▲</span>
+      <span class="clip-event-line" style="left: 81.04857142857144%; --row: 1;"></span>
+      <code class="clip-call" style="left: 81.04857142857144%; --row: 1;">add_to_cart(grilled-chicken-breast)</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 45.14%;">Got it, grilled chicken breast. Anything else?</span><span class="clip-turn" style="left: 86.07714285714286%;">OK, another grilled chicken breast. Anything else?</span></div></div>
+</div>
+
+<h4 id="prompt-compliance">Prompt compliance</h4>
+
+<p>Agent asks about non-required options or ones with defaults.</p>
+
+<h4 id="non-standard-phrasing">Non-standard phrasing</h4>
+
+<p>Customer orders a small mushroom swiss burger, wants to change to large by saying “can I get a large on that”, agent adds a large classic burger instead of changing the size</p>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 5.275925925925926%;">Can I get a mushroom Swiss burger?</span><span class="clip-turn" style="left: 40.262962962962966%;">Small.</span><span class="clip-turn" style="left: 62.95%;">Can I get a large on that?</span><span class="clip-turn" style="left: 91.39814814814815%;">Yeah. Let me get a beet and goat cheese salad.</span></div><audio controls="" preload="auto" src="/assets/media/order_up.Corner_Bistro.18A2B445.g2.s1.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Corner_Bistro.18A2B445.g2.s1/20260608_120826/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Corner_Bistro.18A2B445.g2.s1/20260608_120826/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 61.75555555555555%;">▲</span>
+      <span class="clip-event-line" style="left: 61.75555555555555%; --row: 0;"></span>
+      <code class="clip-call" style="left: 61.75555555555555%; --row: 0;">add_to_cart(mushroom-swiss-small)</code><span class="clip-arrow" style="left: 92.87407407407407%;">▲</span>
+      <span class="clip-event-line" style="left: 92.87407407407407%; --row: 1;"></span>
+      <code class="clip-call" style="left: 92.87407407407407%; --row: 1;">add_to_cart(classic-burger-large)</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 19.362962962962964%;">OK — small or large Mushroom Swiss Burger?</span><span class="clip-turn" style="left: 59.86851851851852%;">Got it, small Mushroom Swiss Burger added. Anything else?</span><span class="clip-turn" style="left: 87.05185185185185%;">OK, let me add that now.</span><span class="clip-turn" style="left: 91.67592592592592%;">Got it, large Classic Burger added. Anything else?</span></div></div>
+</div>
+
+<p>Customer orders “red curry”, then has an off-topic line “wait let me find it”. Agent adds green curry instead of red.</p>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 14.55625%;">Red curry? Wait, let me find it</span></div><audio controls="" preload="auto" src="/assets/media/order_up.Maple_Street_Diner.184D69F0.g0.s2.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Maple_Street_Diner.184D69F0.g0.s2/20260605_105115/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Maple_Street_Diner.184D69F0.g0.s2/20260605_105115/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 59.19375%;">▲</span>
+      <span class="clip-event-line" style="left: 59.19375%; --row: 0;"></span>
+      <code class="clip-call" style="left: 59.19375%; --row: 0;">add_to_cart(green-curry)</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 45.5%;">Okay, let me sort that out for you.</span><span class="clip-turn" style="left: 62.3625%;">Got it — green curry with shrimp and no rice. Anything else?</span></div></div>
+</div>
+
+<h4 id="agent-response-interrupts-customer-speech">Agent response interrupts customer speech</h4>
+
+<p>First, the agent asks the customer if they want anything else. Before waiting for a response, the agent rephrases their question with the opposite yes/no direction. Customer responds “no” to “anything else?” but the agent interprets it as an answer to <em>“if you’re done, just say ‘that’s all’”</em> which has the opposite meaning. The agent is not aware that it’s interrupting the speech of the customer so doesn’t know that “no” is in response to their previous message.</p>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 48.60434782608696%;">No.</span><span class="clip-turn" style="left: 89.6086956521739%;">That's all, thanks.</span></div><audio controls="" preload="auto" src="/assets/media/order_up.Ember_Oak.B595D0A1.g0.s1.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Ember_Oak.B595D0A1.g0.s1/20260605_110417/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Ember_Oak.B595D0A1.g0.s1/20260605_110417/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 1.8695652173913044%;">▲</span>
+      <span class="clip-event-line" style="left: 1.8695652173913044%; --row: 0;"></span>
+      <code class="clip-call" style="left: 1.8695652173913044%; --row: 0;">add_to_cart(samosa-plate)</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 7.273913043478261%;">Got it. Anything else?</span><span class="clip-turn" style="left: 18.182608695652174%;">Just checking if you want to add anything else to your order.</span><span class="clip-turn" style="left: 48.43043478260869%;">If you’re done, just say “that’s all.”</span><span class="clip-turn" style="left: 61.608695652173914%;">OK, what else would you like?</span></div></div>
+</div>
+
+<h4 id="agent-assumes-instead-of-re-asking">Agent assumes instead of re-asking</h4>
+
+<p>Agent’s follow-up is interrupted, they don’t re-try before submitting; instead they make an assumption. Asking for the same thing twice leads to an assumption rather than a follow-up question.</p>
+
+<p>Agent adds “small” margarita pizza without confirming because they were interrupted once.</p>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 9.755%;">I need a Classic Margarita.</span><span class="clip-turn" style="left: 33.5%;">And a Taco Salad.</span><span class="clip-turn" style="left: 61.065%;">That's all, thanks.</span></div><audio controls="" preload="auto" src="/assets/media/order_up.Maple_Street_Diner.B595D0A1.g1.s3.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Maple_Street_Diner.B595D0A1.g1.s3/20260605_110505/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Maple_Street_Diner.B595D0A1.g1.s3/20260605_110505/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 69.55%;">▲</span>
+      <span class="clip-event-line" style="left: 69.55%; --row: 0;"></span>
+      <code class="clip-call" style="left: 69.55%; --row: 0;">add_to_cart(taco-salad)</code><span class="clip-arrow" style="left: 72.615%;">▲</span>
+      <span class="clip-event-line" style="left: 72.615%; --row: 1;"></span>
+      <code class="clip-call" style="left: 72.615%; --row: 1;">add_to_cart(margherita-pizza-small)</code><span class="clip-arrow" style="left: 77.2%;">▲</span>
+      <span class="clip-event-line" style="left: 77.2%; --row: 2;"></span>
+      <code class="clip-call" style="left: 77.2%; --row: 2;">submit_order()</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 6.55%;">Hi there. What would you like to order?</span><span class="clip-turn" style="left: 40.21%;">Sure. Small or</span><span class="clip-turn" style="left: 59.38%;">Got it, let me ring those in.</span><span class="clip-turn" style="left: 81.84%;">Thanks, your order is on its way.</span></div></div>
+</div>
+
+<h4 id="variant-assumptions-and-mistranscription">Variant assumptions and mistranscription</h4>
+
+<p>Model makes assumptions about variants without asking sometimes. Mistranscription becomes more likely as the menu grows — e.g. “milkshake” → “cheesecake”.</p>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 10.822222222222223%;">Can I get a milkshake?</span><span class="clip-turn" style="left: 63.94814814814815%;">Can I get a milkshake?</span></div><audio controls="" preload="auto" src="/assets/media/order_up.Piazza_Grill.18A2B445.g0.s0.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Piazza_Grill.18A2B445.g0.s0/20260608_170553/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Piazza_Grill.18A2B445.g0.s0/20260608_170553/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 30.266666666666666%;">▲</span>
+      <span class="clip-event-line" style="left: 30.266666666666666%; --row: 0;"></span>
+      <code class="clip-call" style="left: 30.266666666666666%; --row: 0;">add_to_cart(cheesecake)</code><span class="clip-arrow" style="left: 82.4037037037037%;">▲</span>
+      <span class="clip-event-line" style="left: 82.4037037037037%; --row: 1;"></span>
+      <code class="clip-call" style="left: 82.4037037037037%; --row: 1;">add_to_cart(cheesecake)</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 24.796296296296298%;">Okay, let me add that and then we’ll continue.</span><span class="clip-turn" style="left: 32.51111111111111%;">Added a slice of cheesecake. Anything else?</span><span class="clip-turn" style="left: 83.02962962962962%;">Got it, another cheesecake. Anything else?</span></div></div>
+</div>
+
+<h4 id="unintended-language-switching">Unintended language switching</h4>
+
+<p>Model switches to Italian.</p>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 4.7681818181818185%;">Quattro formaggi.</span><span class="clip-turn" style="left: 71.75454545454545%;">Large.</span></div><audio controls="" preload="auto" src="/assets/media/order_up.Sunrise_Cafe.58C77CE6.g1.s2.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Sunrise_Cafe.58C77CE6.g1.s2/20260605_105701/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Sunrise_Cafe.58C77CE6.g1.s2/20260605_105701/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 79.37272727272727%;">▲</span>
+      <span class="clip-event-line" style="left: 79.37272727272727%; --row: 0;"></span>
+      <code class="clip-call" style="left: 79.37272727272727%; --row: 0;">add_to_cart(four-cheese-pizza-large)</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 15.572727272727272%;">Sorry, I didn’t catch that.</span><span class="clip-turn" style="left: 29.7%;">Got it, let me just clarify how you’d like it customized.</span><span class="clip-turn" style="left: 40.53636363636364%;">Piccola o grande?</span><span class="clip-turn" style="left: 89.25%;">Ok, una grande con le impostazioni di default. Altro?</span></div></div>
+</div>
+
+<h4 id="challenging-speech">Challenging speech</h4>
+
+<p>Customer says “can you change that to mild”, agent adds “chicken burrito”.</p>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 26.037209302325582%;">Spicy.</span><span class="clip-turn" style="left: 61.56046511627907%;">Yes, can I get a, can you change that to mild</span><span class="clip-turn" style="left: 92.64186046511628%;">Alright, can I get a dal makhani?</span></div><audio controls="" preload="auto" src="/assets/media/order_up.The_Rustic_Table.FC5B850B.g7.s0.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.The_Rustic_Table.FC5B850B.g7.s0/20260608_120828/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.The_Rustic_Table.FC5B850B.g7.s0/20260608_120828/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 39.4046511627907%;">▲</span>
+      <span class="clip-event-line" style="left: 39.4046511627907%; --row: 0;"></span>
+      <code class="clip-call" style="left: 39.4046511627907%; --row: 0;">add_to_cart(carnitas-taco-spicy)</code><span class="clip-arrow" style="left: 92.03023255813953%;">▲</span>
+      <span class="clip-event-line" style="left: 92.03023255813953%; --row: 1;"></span>
+      <code class="clip-call" style="left: 92.03023255813953%; --row: 1;">add_to_cart(chicken-burrito)</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 9.67674418604651%;">Mild or spicy carnitas?</span><span class="clip-turn" style="left: 40.32325581395349%;">Got it. Anything else?</span><span class="clip-turn" style="left: 87.77441860465116%;">Sure, let me get that added for you.</span><span class="clip-turn" style="left: 93.9046511627907%;">OK. Anything else?</span></div></div>
+</div>
+
+<h4 id="agent-responds-to-noise">Agent responds to noise</h4>
+
+<p>Agent picks up background noise or a second speaker and asks the customer a question about it as they are ordering “smoked sausage”. Their question seems unrelated so the customer is not confident the agent understood the question, so the customer orders again. The agent then adds a second item instead of confirming the first one.</p>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 3.8216666666666668%;">I need a Hawaiian Pizza.</span><span class="clip-turn" style="left: 21.563333333333333%;">Go large.</span><span class="clip-turn" style="left: 39.81333333333333%;">Actually, give me a small Hawaiian Pizza.</span><span class="clip-turn" style="left: 57.38333333333333%;">And I need a Smoked Sausage Link.</span><span class="clip-turn" style="left: 83.14666666666666%;">And I need a Smoked Sausage Link.</span></div><audio controls="" preload="auto" src="/assets/media/order_up.Maple_Street_Diner.B595D0A1.g1.s1.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Maple_Street_Diner.B595D0A1.g1.s1/20260605_110448/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Maple_Street_Diner.B595D0A1.g1.s1/20260605_110448/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 29.15%;">▲</span>
+      <span class="clip-event-line" style="left: 29.15%; --row: 0;"></span>
+      <code class="clip-call" style="left: 29.15%; --row: 0;">add_to_cart(hawaiian-pizza-large)</code><span class="clip-arrow" style="left: 47.29833333333333%;">▲</span>
+      <span class="clip-event-line" style="left: 47.29833333333333%; --row: 1;"></span>
+      <code class="clip-call" style="left: 47.29833333333333%; --row: 1;">add_to_cart(hawaiian-pizza-small)</code><span class="clip-arrow" style="left: 69.2%;">▲</span>
+      <span class="clip-event-line" style="left: 69.2%; --row: 2;"></span>
+      <code class="clip-call" style="left: 69.2%; --row: 2;">add_to_cart(smoked-sausage)</code><span class="clip-arrow" style="left: 92.71%;">▲</span>
+      <span class="clip-event-line" style="left: 92.71%; --row: 3;"></span>
+      <code class="clip-call" style="left: 92.71%; --row: 3;">add_to_cart(smoked-sausage)</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 11.206666666666667%;">Got it — small or large?</span><span class="clip-turn" style="left: 29.898333333333333%;">OK. Anything else?</span><span class="clip-turn" style="left: 47.775%;">Got it. Anything else?</span><span class="clip-turn" style="left: 57.49666666666667%;">Small what? Do you mean another small Hawaiian pizza, or a different item?</span><span class="clip-turn" style="left: 65.995%;">Got it, let me add that with the default choices for now.</span><span class="clip-turn" style="left: 70.475%;">OK. Anything else?</span><span class="clip-turn" style="left: 93.45%;">Got it, another one added. Anything else?</span></div></div>
+</div>
+
+<h4 id="multi-item-option-assumptions">Multi-item option assumptions</h4>
+
+<p>Agent makes assumptions about options if 2 or more items are ordered together.</p>
+
+<p>Agent is supposed to ask if the pad thai is mild or spicy, but assumes mild.</p>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 24.58%;">Pad Thai. Thai fried rice.</span></div><audio controls="" preload="auto" src="/assets/media/order_up.Blue_Moon_Cafe.58C77CE6.g0.s1.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Blue_Moon_Cafe.58C77CE6.g0.s1/20260608_150957/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Blue_Moon_Cafe.58C77CE6.g0.s1/20260608_150957/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 50.916666666666664%;">▲</span>
+      <span class="clip-event-line" style="left: 50.916666666666664%; --row: 0;"></span>
+      <code class="clip-call" style="left: 50.916666666666664%; --row: 0;">add_to_cart(pad-thai-mild)</code><span class="clip-arrow" style="left: 50.92666666666667%;">▲</span>
+      <span class="clip-event-line" style="left: 50.92666666666667%; --row: 1;"></span>
+      <code class="clip-call" style="left: 50.92666666666667%; --row: 1;">add_to_cart(thai-fried-rice)</code><span class="clip-arrow" style="left: 97.92666666666666%;">▲</span>
+      <span class="clip-event-line" style="left: 97.92666666666666%; --row: 2;"></span>
+      <code class="clip-call" style="left: 97.92666666666666%; --row: 2;">submit_order()</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 6.67%;">Hi there! What would you like to order today?</span><span class="clip-turn" style="left: 42.266666666666666%;">Got it, let me quickly set those up with the right choices.</span><span class="clip-turn" style="left: 53.39333333333333%;">OK, added Pad Thai and Thai Fried Rice with default choices. Anything else?</span><span class="clip-turn" style="left: 98.06333333333333%;">Thanks, your order is on its way.</span></div></div>
+</div>
+
+<h4 id="tts--text-mismatch">TTS / text mismatch</h4>
+
+<p>TTS speech doesn’t match model text output (actual audio says “jalapeño roll” which combines tuna roll and jalapeño burger).</p>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"></div><audio controls="" preload="auto" src="/assets/media/order_up.Harbor_House.190AB7F2.g0.s2.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Harbor_House.190AB7F2.g0.s2/20260609_233907/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Harbor_House.190AB7F2.g0.s2/20260609_233907/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 24.346666666666668%;">▲</span>
+      <span class="clip-event-line" style="left: 24.346666666666668%; --row: 0;"></span>
+      <code class="clip-call" style="left: 24.346666666666668%; --row: 0;">add_to_cart(spicy-tuna-roll)</code><span class="clip-arrow" style="left: 24.35333333333333%;">▲</span>
+      <span class="clip-event-line" style="left: 24.35333333333333%; --row: 1;"></span>
+      <code class="clip-call" style="left: 24.35333333333333%; --row: 1;">add_to_cart(jalapeno-burger)</code><span class="clip-arrow" style="left: 94.42666666666666%;">▲</span>
+      <span class="clip-event-line" style="left: 94.42666666666666%; --row: 2;"></span>
+      <code class="clip-call" style="left: 94.42666666666666%; --row: 2;">submit_order()</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 14.073333333333334%;">Got it, a Spicy Tuna Roll. Mild</span><span class="clip-turn" style="left: 41.76%;">For the tuna roll, wasabi on the side, with wasabi, or without? And anything else for you?</span></div></div>
+</div>
+
+<h4 id="ambiguous-update-misattribution">Ambiguous-update misattribution</h4>
+
+<p>Customer orders 2 items, makes an update that can apply to either; agent updates the wrong item without clarifying.</p>
+
+<p>Customer wanted to change mild lamb vindaloo to spicy but the agent applied it to butter chicken instead.</p>
+
+<div class="clip"><div class="clip-transcript clip-transcript-customer"><span class="clip-turn" style="left: 6.131428571428572%;">I'll have a lamb vindaloo. Along with some butter chicken. mild for the lamb</span><span class="clip-turn" style="left: 64.54%;">So I'm going to be like, damn. Spicy, actually.</span></div><audio controls="" preload="auto" src="/assets/media/order_up.Napoli_s_Pizzeria.6CD8E27B.g2.s2.mp3"></audio><a class="clip-link" href="http://localhost:8765/run/order_up.Napoli_s_Pizzeria.6CD8E27B.g2.s2/20260615_101644/" target="_blank" rel="noopener">http://localhost:8765/run/order_up.Napoli_s_Pizzeria.6CD8E27B.g2.s2/20260615_101644/</a><div class="clip-timeline"><span class="clip-arrow" style="left: 39.99142857142857%;">▲</span>
+      <span class="clip-event-line" style="left: 39.99142857142857%; --row: 0;"></span>
+      <code class="clip-call" style="left: 39.99142857142857%; --row: 0;">add_to_cart(lamb-vindaloo-mild)</code><span class="clip-arrow" style="left: 40.0%;">▲</span>
+      <span class="clip-event-line" style="left: 40.0%; --row: 1;"></span>
+      <code class="clip-call" style="left: 40.0%; --row: 1;">add_to_cart(butter-chicken)</code><span class="clip-arrow" style="left: 87.27714285714286%;">▲</span>
+      <span class="clip-event-line" style="left: 87.27714285714286%; --row: 2;"></span>
+      <code class="clip-call" style="left: 87.27714285714286%; --row: 2;">remove_from_cart(butter-chicken, Spice Level: Mild, Accompaniment: Naan)</code><span class="clip-arrow" style="left: 89.80285714285715%;">▲</span>
+      <span class="clip-event-line" style="left: 89.80285714285715%; --row: 3;"></span>
+      <code class="clip-call" style="left: 89.80285714285715%; --row: 3;">add_to_cart(butter-chicken, Spice Level: Spicy, Accompaniment: Naan)</code><div class="clip-transcript clip-transcript-agent"><span class="clip-turn" style="left: 18.47142857142857%;">Mild or spicy?</span><span class="clip-turn" style="left: 34.79714285714286%;">Got it, adding those now.</span><span class="clip-turn" style="left: 42.39142857142857%;">OK, anything else?</span><span class="clip-turn" style="left: 84.08571428571429%;">Got it, updating that to spicy.</span><span class="clip-turn" style="left: 91.58571428571429%;">Done. Anything else?</span></div></div>
+</div>
+
+
+      <footer class="site-footer">
+        
+        <span class="site-footer-credits">This page was generated by <a href="https://pages.github.com">GitHub Pages</a>.</span>
+      </footer>
+    </main>
+  </body>
+</html>

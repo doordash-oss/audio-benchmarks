@@ -1,0 +1,50 @@
+{%- assign clip = site.data.clips | where: "id", include.id | first -%}
+{%- if clip -%}
+{%- assign duration = clip.window_end | minus: clip.window_start -%}
+<div class="clip">
+  {%- if clip.transcript -%}
+  <div class="clip-transcript clip-transcript-customer">
+    {%- for turn in clip.transcript -%}
+      {%- if turn.role == "customer" -%}
+        {%- assign delta = turn.t | minus: clip.window_start -%}
+        {%- assign rel = delta | times: 100.0 | divided_by: duration -%}
+        {%- if rel >= 0 and rel <= 100 -%}
+          <span class="clip-turn" style="left: {{ rel }}%;">{{ turn.text }}</span>
+        {%- endif -%}
+      {%- endif -%}
+    {%- endfor -%}
+  </div>
+  {%- endif -%}
+  <audio controls preload="auto" src="{{ site.baseurl }}/assets/media/{{ clip.id }}.mp3"></audio>
+  {%- if clip.run_ts -%}
+  <a class="clip-link" href="http://localhost:8765/run/{{ clip.id }}/{{ clip.run_ts }}/" target="_blank" rel="noopener">http://localhost:8765/run/{{ clip.id }}/{{ clip.run_ts }}/</a>
+  {%- endif -%}
+  <div class="clip-timeline">
+    {%- for call in clip.calls -%}
+      {%- assign delta = call.t | minus: clip.window_start -%}
+      {%- assign rel = delta | times: 100.0 | divided_by: duration -%}
+      {%- if rel < 0 -%}{%- assign rel = 0 -%}{%- endif -%}
+      {%- if rel > 100 -%}{%- assign rel = 100 -%}{%- endif -%}
+      {%- assign row = forloop.index0 | modulo: 5 -%}
+      <span class="clip-arrow" style="left: {{ rel }}%;">▲</span>
+      <span class="clip-event-line" style="left: {{ rel }}%; --row: {{ row }};"></span>
+      <code class="clip-call" style="left: {{ rel }}%; --row: {{ row }};">{{ call.tool }}({{ call.args }})</code>
+    {%- endfor -%}
+    {%- if clip.transcript -%}
+    <div class="clip-transcript clip-transcript-agent">
+      {%- for turn in clip.transcript -%}
+        {%- if turn.role == "agent" -%}
+          {%- assign delta = turn.t | minus: clip.window_start -%}
+          {%- assign rel = delta | times: 100.0 | divided_by: duration -%}
+          {%- if rel >= 0 and rel <= 100 -%}
+            <span class="clip-turn" style="left: {{ rel }}%;">{{ turn.text }}</span>
+          {%- endif -%}
+        {%- endif -%}
+      {%- endfor -%}
+    </div>
+    {%- endif -%}
+  </div>
+</div>
+{%- else -%}
+<p><em>clip data missing for <code>{{ include.id }}</code> — run <code>bin/generate-clip-data</code>.</em></p>
+{%- endif -%}
