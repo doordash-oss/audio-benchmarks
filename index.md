@@ -65,11 +65,11 @@ In addition to those content-related features, the collection process samples fr
 
 ### Dataset composition
 
-The working set for the V1 benchmark is 254 per-stage tasks drawn from 65 recording sessions spanning 15 distinct restaurants. Of the 254 stages, 236 are attributable to a specific user via the recording pipeline's session metadata; the remaining 18 predate that metadata and are grouped as unknown.
+The working set for the V1 benchmark is 248 per-stage tasks drawn from 64 recording sessions spanning 15 distinct restaurants. Of the 248 stages, 230 are attributable to a specific user via the recording pipeline's session metadata; the remaining 18 predate that metadata and are grouped as unknown.
 
 | metric | value |
 | --- | ---: |
-| Working-set stages | 254 |
+| Working-set stages | 248 |
 | Distinct users (attributed) | 49 |
 | Stages per user — min | 1 |
 | Stages per user — median | 3 |
@@ -82,20 +82,22 @@ The distribution is long-tailed: three users contribute a large fraction of the 
 
 ### Metrics
 
-Headline numbers from the multi-model benchmark sweep over 254 per-stage tasks (4 models).
+Headline numbers from a four-model sweep over the 248 per-stage tasks the released dataset ships, all four run against the published Hugging Face dataset under identical conditions. One recording session (6 stages) was withdrawn after the original 254-task sweep, whose figures were 173 / 165 / 151 / 155.
+
+Each model contributes one run per task, so per-task outcomes carry real run-to-run variance: re-running the same model on byte-identical data moved individual tasks in both directions and shifted aggregate pass rates by up to 6 points. Treat small gaps between models as inconclusive.
 
 #### Success rate
 
 A run counts as a success when the agent's final cart matches the ground-truth cart exactly — every expected item present, no extras, no wrong options or variants. The denominator is the number of tasks with at least one run on that model; the all-pass intersection is the set where every model scored 1.0 (used as the comparable subset for timing).
 
-254 tasks evaluated &nbsp;·&nbsp; 56-task all-pass intersection
+248 tasks evaluated &nbsp;·&nbsp; 58-task all-pass intersection
 
 | model | passed | total | rate |
 | --- | ---: | ---: | ---: |
-| OpenAI Realtime · native | 173 | 254 | **68.1%** |
-| Grok Voice · xAI Realtime | 165 | 254 | **65.0%** |
-| Gemini Live · Pipecat | 151 | 254 | **59.4%** |
-| Cascaded · Whisper+GPT-4.1+TTS | 155 | 254 | **61.0%** |
+| OpenAI Realtime · Pipecat | 180 | 248 | **72.6%** |
+| Grok Voice · xAI Realtime | 169 | 248 | **68.1%** |
+| Gemini Live · Pipecat | 149 | 248 | **60.1%** |
+| Cascaded · Whisper+GPT-4.1+TTS | 136 | 248 | **54.8%** |
 
 #### Recoverability
 
@@ -105,63 +107,60 @@ Finally, some conversations are "**unrecoverable**". Generally these are stages 
 (See the error breakdown section for more detail about recoverable vs unrecoverable issues.)
 
 <svg viewBox="0 0 720 380" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:720px;font:11px sans-serif;display:block;margin:8px 0;">
-<text x="50" y="14" font-weight="700" fill="#222">Recoverability · share of tasks per outcome (of 254 tasks)</text>
-<line x1="50" x2="704" y1="270.0" y2="270.0" stroke="#eee"/>
+<text x="50" y="14" font-weight="700" fill="#222">Recoverability · share of tasks per outcome (of 248 tasks)</text>
+<line x1="50.0" x2="704.0" y1="270.0" y2="270.0" stroke="#eee"/>
 <text x="44" y="273.0" text-anchor="end" fill="#666">0%</text>
-<line x1="50" x2="704" y1="221.6" y2="221.6" stroke="#eee"/>
+<line x1="50.0" x2="704.0" y1="221.6" y2="221.6" stroke="#eee"/>
 <text x="44" y="224.6" text-anchor="end" fill="#666">20%</text>
-<line x1="50" x2="704" y1="173.2" y2="173.2" stroke="#eee"/>
+<line x1="50.0" x2="704.0" y1="173.2" y2="173.2" stroke="#eee"/>
 <text x="44" y="176.2" text-anchor="end" fill="#666">40%</text>
-<line x1="50" x2="704" y1="124.8" y2="124.8" stroke="#eee"/>
+<line x1="50.0" x2="704.0" y1="124.8" y2="124.8" stroke="#eee"/>
 <text x="44" y="127.8" text-anchor="end" fill="#666">60%</text>
-<line x1="50" x2="704" y1="76.4" y2="76.4" stroke="#eee"/>
+<line x1="50.0" x2="704.0" y1="76.4" y2="76.4" stroke="#eee"/>
 <text x="44" y="79.4" text-anchor="end" fill="#666">80%</text>
-<line x1="50" x2="704" y1="28.0" y2="28.0" stroke="#eee"/>
+<line x1="50.0" x2="704.0" y1="28.0" y2="28.0" stroke="#eee"/>
 <text x="44" y="31.0" text-anchor="end" fill="#666">100%</text>
-<line x1="50" x2="704" y1="270.0" y2="270.0" stroke="#333"/>
-<rect x="116.8" y="129.0" width="80" height="141.0" fill="#2e7d32" stroke="#fff" stroke-width="1"><title>OAI · passed: 148 (58.3%)</title></rect>
-<text x="156.8" y="203.5" text-anchor="middle" fill="#fff" font-weight="600">148 (58.3%)</text>
-<rect x="116.8" y="105.2" width="80" height="23.8" fill="#7cb342" stroke="#fff" stroke-width="1"><title>OAI · recovered: 25 (9.8%)</title></rect>
-<text x="156.8" y="121.1" text-anchor="middle" fill="#fff" font-weight="600">25 (9.8%)</text>
-<rect x="116.8" y="62.3" width="80" height="42.9" fill="#f0a020" stroke="#fff" stroke-width="1"><title>OAI · recoverable failure: 45 (17.7%)</title></rect>
-<text x="156.8" y="87.7" text-anchor="middle" fill="#fff" font-weight="600">45 (17.7%)</text>
-<rect x="116.8" y="28.0" width="80" height="34.3" fill="#a32020" stroke="#fff" stroke-width="1"><title>OAI · unrecoverable failure: 36 (14.2%)</title></rect>
-<text x="156.8" y="49.1" text-anchor="middle" fill="#fff" font-weight="600">36 (14.2%)</text>
-<text x="156.8" y="288.0" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
-<rect x="263.6" y="200.4" width="80" height="69.6" fill="#2e7d32" stroke="#fff" stroke-width="1"><title>GEM · passed: 73 (28.7%)</title></rect>
-<text x="303.6" y="239.2" text-anchor="middle" fill="#fff" font-weight="600">73 (28.7%)</text>
-<rect x="263.6" y="126.1" width="80" height="74.3" fill="#7cb342" stroke="#fff" stroke-width="1"><title>GEM · recovered: 78 (30.7%)</title></rect>
-<text x="303.6" y="167.3" text-anchor="middle" fill="#fff" font-weight="600">78 (30.7%)</text>
-<rect x="263.6" y="44.2" width="80" height="81.9" fill="#f0a020" stroke="#fff" stroke-width="1"><title>GEM · recoverable failure: 86 (33.9%)</title></rect>
-<text x="303.6" y="89.2" text-anchor="middle" fill="#fff" font-weight="600">86 (33.9%)</text>
-<rect x="263.6" y="28.0" width="80" height="16.2" fill="#a32020" stroke="#fff" stroke-width="1"><title>GEM · unrecoverable failure: 17 (6.7%)</title></rect>
-<text x="303.6" y="40.1" text-anchor="middle" fill="#fff" font-weight="600">17 (6.7%)</text>
-<text x="303.6" y="288.0" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
-<rect x="410.4" y="241.4" width="80" height="28.6" fill="#2e7d32" stroke="#fff" stroke-width="1"><title>CAS · passed: 30 (11.8%)</title></rect>
-<text x="450.4" y="259.7" text-anchor="middle" fill="#fff" font-weight="600">30 (11.8%)</text>
-<rect x="410.4" y="122.3" width="80" height="119.1" fill="#7cb342" stroke="#fff" stroke-width="1"><title>CAS · recovered: 125 (49.2%)</title></rect>
-<text x="450.4" y="185.9" text-anchor="middle" fill="#fff" font-weight="600">125 (49.2%)</text>
-<rect x="410.4" y="43.2" width="80" height="79.1" fill="#f0a020" stroke="#fff" stroke-width="1"><title>CAS · recoverable failure: 83 (32.7%)</title></rect>
-<text x="450.4" y="86.8" text-anchor="middle" fill="#fff" font-weight="600">83 (32.7%)</text>
-<rect x="410.4" y="28.0" width="80" height="15.2" fill="#a32020" stroke="#fff" stroke-width="1"><title>CAS · unrecoverable failure: 16 (6.3%)</title></rect>
-<text x="450.4" y="39.6" text-anchor="middle" fill="#fff" font-weight="600">16 (6.3%)</text>
-<text x="450.4" y="288.0" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
-<rect x="557.2" y="155.7" width="80" height="114.3" fill="#2e7d32" stroke="#fff" stroke-width="1"><title>GROK · passed: 120 (47.2%)</title></rect>
-<text x="597.2" y="216.8" text-anchor="middle" fill="#fff" font-weight="600">120 (47.2%)</text>
-<rect x="557.2" y="112.8" width="80" height="42.9" fill="#7cb342" stroke="#fff" stroke-width="1"><title>GROK · recovered: 45 (17.7%)</title></rect>
-<text x="597.2" y="138.2" text-anchor="middle" fill="#fff" font-weight="600">45 (17.7%)</text>
-<rect x="557.2" y="39.4" width="80" height="73.4" fill="#f0a020" stroke="#fff" stroke-width="1"><title>GROK · recoverable failure: 77 (30.3%)</title></rect>
-<text x="597.2" y="80.1" text-anchor="middle" fill="#fff" font-weight="600">77 (30.3%)</text>
-<rect x="557.2" y="28.0" width="80" height="11.4" fill="#a32020" stroke="#fff" stroke-width="1"><title>GROK · unrecoverable failure: 12 (4.7%)</title></rect>
-<text x="597.2" y="288.0" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
-<rect x="50.0" y="314.0" width="11" height="11" fill="#2e7d32"/>
-<text x="66.0" y="323.0" fill="#333">passed</text>
-<rect x="130.0" y="314.0" width="11" height="11" fill="#7cb342"/>
-<text x="146.0" y="323.0" fill="#333">recovered (just_the_defaults)</text>
-<rect x="320.0" y="314.0" width="11" height="11" fill="#f0a020"/>
-<text x="336.0" y="323.0" fill="#333">recoverable failure</text>
-<rect x="476.0" y="314.0" width="11" height="11" fill="#a32020"/>
-<text x="492.0" y="323.0" fill="#333">unrecoverable failure</text>
+<line x1="50.0" x2="704.0" y1="270.0" y2="270.0" stroke="#333"/>
+<rect x="116.8" y="103.1" width="80" height="166.9" fill="#2e7d32" stroke="#fff" stroke-width="1"><title>OAI · passed: 171 (69.0%)</title></rect>
+<text x="156.8" y="190.6" text-anchor="middle" fill="#fff" font-weight="600">171 (69.0%)</text>
+<rect x="116.8" y="94.4" width="80" height="8.8" fill="#7cb342" stroke="#fff" stroke-width="1"><title>OAI · recovered: 9 (3.6%)</title></rect>
+<rect x="116.8" y="56.3" width="80" height="38.1" fill="#f0a020" stroke="#fff" stroke-width="1"><title>OAI · recoverable failure: 39 (15.7%)</title></rect>
+<text x="156.8" y="79.3" text-anchor="middle" fill="#fff" font-weight="600">39 (15.7%)</text>
+<rect x="116.8" y="28.0" width="80" height="28.3" fill="#a32020" stroke="#fff" stroke-width="1"><title>OAI · unrecoverable failure: 29 (11.7%)</title></rect>
+<text x="156.8" y="46.1" text-anchor="middle" fill="#fff" font-weight="600">29 (11.7%)</text>
+<text x="156.8" y="288" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
+<rect x="263.6" y="195.8" width="80" height="74.2" fill="#2e7d32" stroke="#fff" stroke-width="1"><title>GEM · passed: 76 (30.6%)</title></rect>
+<text x="303.6" y="236.9" text-anchor="middle" fill="#fff" font-weight="600">76 (30.6%)</text>
+<rect x="263.6" y="124.6" width="80" height="71.2" fill="#7cb342" stroke="#fff" stroke-width="1"><title>GEM · recovered: 73 (29.4%)</title></rect>
+<text x="303.6" y="164.2" text-anchor="middle" fill="#fff" font-weight="600">73 (29.4%)</text>
+<rect x="263.6" y="36.8" width="80" height="87.8" fill="#f0a020" stroke="#fff" stroke-width="1"><title>GEM · recoverable failure: 90 (36.3%)</title></rect>
+<text x="303.6" y="84.7" text-anchor="middle" fill="#fff" font-weight="600">90 (36.3%)</text>
+<rect x="263.6" y="28.0" width="80" height="8.8" fill="#a32020" stroke="#fff" stroke-width="1"><title>GEM · unrecoverable failure: 9 (3.6%)</title></rect>
+<text x="303.6" y="288" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
+<rect x="410.4" y="235.8" width="80" height="34.2" fill="#2e7d32" stroke="#fff" stroke-width="1"><title>CAS · passed: 35 (14.1%)</title></rect>
+<text x="450.4" y="256.9" text-anchor="middle" fill="#fff" font-weight="600">35 (14.1%)</text>
+<rect x="410.4" y="137.3" width="80" height="98.6" fill="#7cb342" stroke="#fff" stroke-width="1"><title>CAS · recovered: 101 (40.7%)</title></rect>
+<text x="450.4" y="190.6" text-anchor="middle" fill="#fff" font-weight="600">101 (40.7%)</text>
+<rect x="410.4" y="35.8" width="80" height="101.5" fill="#f0a020" stroke="#fff" stroke-width="1"><title>CAS · recoverable failure: 104 (41.9%)</title></rect>
+<text x="450.4" y="90.5" text-anchor="middle" fill="#fff" font-weight="600">104 (41.9%)</text>
+<rect x="410.4" y="28.0" width="80" height="7.8" fill="#a32020" stroke="#fff" stroke-width="1"><title>CAS · unrecoverable failure: 8 (3.2%)</title></rect>
+<text x="450.4" y="288" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
+<rect x="557.2" y="133.4" width="80" height="136.6" fill="#2e7d32" stroke="#fff" stroke-width="1"><title>GROK · passed: 140 (56.5%)</title></rect>
+<text x="597.2" y="205.7" text-anchor="middle" fill="#fff" font-weight="600">140 (56.5%)</text>
+<rect x="557.2" y="105.1" width="80" height="28.3" fill="#7cb342" stroke="#fff" stroke-width="1"><title>GROK · recovered: 29 (11.7%)</title></rect>
+<text x="597.2" y="123.2" text-anchor="middle" fill="#fff" font-weight="600">29 (11.7%)</text>
+<rect x="557.2" y="34.8" width="80" height="70.3" fill="#f0a020" stroke="#fff" stroke-width="1"><title>GROK · recoverable failure: 72 (29.0%)</title></rect>
+<text x="597.2" y="74.0" text-anchor="middle" fill="#fff" font-weight="600">72 (29.0%)</text>
+<rect x="557.2" y="28.0" width="80" height="6.8" fill="#a32020" stroke="#fff" stroke-width="1"><title>GROK · unrecoverable failure: 7 (2.8%)</title></rect>
+<text x="597.2" y="288" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
+<rect x="50.0" y="342.0" width="11" height="11" fill="#2e7d32"/>
+<text x="66.0" y="351.0" fill="#333">passed</text>
+<rect x="310.0" y="342.0" width="11" height="11" fill="#7cb342"/>
+<text x="326.0" y="351.0" fill="#333">recovered</text>
+<rect x="50.0" y="360.0" width="11" height="11" fill="#f0a020"/>
+<text x="66.0" y="369.0" fill="#333">recoverable failure</text>
+<rect x="310.0" y="360.0" width="11" height="11" fill="#a32020"/>
+<text x="326.0" y="369.0" fill="#333">unrecoverable failure</text>
 </svg>
 
 
@@ -172,45 +171,43 @@ An **interruption** is a clear case where the agent began speaking while a custo
 
 <svg viewBox="0 0 720 380" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:720px;font:11px sans-serif;display:block;margin:8px 0;">
 <text x="60" y="14" font-weight="700" fill="#222">Turn-taking failure rates · % of customer-clip plays (deterministic VAD)</text>
-<line x1="60" x2="704" y1="280.0" y2="280.0" stroke="#eee"/>
+<line x1="60.0" x2="704.0" y1="280.0" y2="280.0" stroke="#eee"/>
 <text x="54" y="283.0" text-anchor="end" fill="#666">0%</text>
-<line x1="60" x2="704" y1="238.0" y2="238.0" stroke="#eee"/>
-<text x="54" y="241.0" text-anchor="end" fill="#666">2%</text>
-<line x1="60" x2="704" y1="196.0" y2="196.0" stroke="#eee"/>
-<text x="54" y="199.0" text-anchor="end" fill="#666">4%</text>
-<line x1="60" x2="704" y1="154.0" y2="154.0" stroke="#eee"/>
-<text x="54" y="157.0" text-anchor="end" fill="#666">6%</text>
-<line x1="60" x2="704" y1="112.0" y2="112.0" stroke="#eee"/>
-<text x="54" y="115.0" text-anchor="end" fill="#666">8%</text>
-<line x1="60" x2="704" y1="70.0" y2="70.0" stroke="#eee"/>
-<text x="54" y="73.0" text-anchor="end" fill="#666">10%</text>
-<line x1="60" x2="704" y1="28.0" y2="28.0" stroke="#eee"/>
-<text x="54" y="31.0" text-anchor="end" fill="#666">12%</text>
-<line x1="60" x2="704" y1="280.0" y2="280.0" stroke="#333"/>
-<rect x="91.5" y="221.2" width="45" height="58.8" fill="#c0392b"><title>OAI: 21 clear interruptions / 754 clips (2.8%)</title></rect>
-<text x="114.0" y="216.2" text-anchor="middle" fill="#333" font-weight="600">2.8% (21)</text>
-<rect x="144.5" y="223.3" width="45" height="56.7" fill="#888888"><title>OAI: no response on 2.7% of 754 clips</title></rect>
-<text x="167.0" y="218.3" text-anchor="middle" fill="#333" font-weight="600">2.7% (20)</text>
-<text x="140.5" y="298.0" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
-<text x="140.5" y="314.0" text-anchor="middle" fill="#666" font-size="10">754 clips · med lat 2.9s</text>
-<rect x="252.5" y="240.1" width="45" height="39.9" fill="#c0392b"><title>GEM: 19 clear interruptions / 981 clips (1.9%)</title></rect>
-<text x="275.0" y="235.1" text-anchor="middle" fill="#333" font-weight="600">1.9% (19)</text>
-<rect x="305.5" y="91.0" width="45" height="189.0" fill="#888888"><title>GEM: no response on 9.0% of 981 clips</title></rect>
-<text x="328.0" y="86.0" text-anchor="middle" fill="#333" font-weight="600">9.0% (88)</text>
-<text x="301.5" y="298.0" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
-<text x="301.5" y="314.0" text-anchor="middle" fill="#666" font-size="10">981 clips · med lat 2.78s</text>
-<rect x="413.5" y="275.8" width="45" height="4.2" fill="#c0392b"><title>CAS: 2 clear interruptions / 1066 clips (0.2%)</title></rect>
-<text x="436.0" y="270.8" text-anchor="middle" fill="#333" font-weight="600">0.2% (2)</text>
-<rect x="466.5" y="196.0" width="45" height="84.0" fill="#888888"><title>CAS: no response on 4.0% of 1066 clips</title></rect>
-<text x="489.0" y="191.0" text-anchor="middle" fill="#333" font-weight="600">4.0% (43)</text>
-<text x="462.5" y="298.0" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
-<text x="462.5" y="314.0" text-anchor="middle" fill="#666" font-size="10">1066 clips · med lat 5.12s</text>
-<rect x="574.5" y="252.7" width="45" height="27.3" fill="#c0392b"><title>GROK: 12 clear interruptions / 924 clips (1.3%)</title></rect>
-<text x="597.0" y="247.7" text-anchor="middle" fill="#333" font-weight="600">1.3% (12)</text>
-<rect x="627.5" y="88.9" width="45" height="191.1" fill="#888888"><title>GROK: no response on 9.1% of 924 clips</title></rect>
-<text x="650.0" y="83.9" text-anchor="middle" fill="#333" font-weight="600">9.1% (84)</text>
-<text x="623.5" y="298.0" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
-<text x="623.5" y="314.0" text-anchor="middle" fill="#666" font-size="10">924 clips · med lat 2.32s</text>
+<line x1="60.0" x2="704.0" y1="229.6" y2="229.6" stroke="#eee"/>
+<text x="54" y="232.6" text-anchor="end" fill="#666">5%</text>
+<line x1="60.0" x2="704.0" y1="179.2" y2="179.2" stroke="#eee"/>
+<text x="54" y="182.2" text-anchor="end" fill="#666">10%</text>
+<line x1="60.0" x2="704.0" y1="128.8" y2="128.8" stroke="#eee"/>
+<text x="54" y="131.8" text-anchor="end" fill="#666">15%</text>
+<line x1="60.0" x2="704.0" y1="78.4" y2="78.4" stroke="#eee"/>
+<text x="54" y="81.4" text-anchor="end" fill="#666">20%</text>
+<line x1="60.0" x2="704.0" y1="28.0" y2="28.0" stroke="#eee"/>
+<text x="54" y="31.0" text-anchor="end" fill="#666">25%</text>
+<line x1="60.0" x2="704.0" y1="280.0" y2="280.0" stroke="#333"/>
+<rect x="91.5" y="271.9" width="45" height="8.1" fill="#c0392b"><title>OAI: 8 clear interruptions / 1002 clips</title></rect>
+<text x="114.0" y="266.9" text-anchor="middle" fill="#333" font-weight="600">0.8% (8)</text>
+<rect x="144.5" y="207.4" width="45" height="72.6" fill="#888888"><title>OAI: no response on 7.2% of 1002 clips</title></rect>
+<text x="167.0" y="202.4" text-anchor="middle" fill="#333" font-weight="600">7.2% (72)</text>
+<text x="140.5" y="298" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
+<text x="140.5" y="314" text-anchor="middle" fill="#666" font-size="10">1002 clips · med lat 6.19s</text>
+<rect x="252.5" y="275.0" width="45" height="5.0" fill="#c0392b"><title>GEM: 6 clear interruptions / 1291 clips</title></rect>
+<text x="275.0" y="270.0" text-anchor="middle" fill="#333" font-weight="600">0.5% (6)</text>
+<rect x="305.5" y="111.7" width="45" height="168.3" fill="#888888"><title>GEM: no response on 16.7% of 1291 clips</title></rect>
+<text x="328.0" y="106.7" text-anchor="middle" fill="#333" font-weight="600">16.7% (216)</text>
+<text x="301.5" y="298" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
+<text x="301.5" y="314" text-anchor="middle" fill="#666" font-size="10">1291 clips · med lat 6.0s</text>
+<rect x="413.5" y="277.0" width="45" height="3.0" fill="#c0392b"><title>CAS: 5 clear interruptions / 1581 clips</title></rect>
+<text x="436.0" y="272.0" text-anchor="middle" fill="#333" font-weight="600">0.3% (5)</text>
+<rect x="466.5" y="53.2" width="45" height="226.8" fill="#888888"><title>CAS: no response on 22.5% of 1581 clips</title></rect>
+<text x="489.0" y="48.2" text-anchor="middle" fill="#333" font-weight="600">22.5% (356)</text>
+<text x="462.5" y="298" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
+<text x="462.5" y="314" text-anchor="middle" fill="#666" font-size="10">1581 clips · med lat 6.13s</text>
+<rect x="574.5" y="276.0" width="45" height="4.0" fill="#c0392b"><title>GROK: 5 clear interruptions / 1225 clips</title></rect>
+<text x="597.0" y="271.0" text-anchor="middle" fill="#333" font-weight="600">0.4% (5)</text>
+<rect x="627.5" y="120.7" width="45" height="159.3" fill="#888888"><title>GROK: no response on 15.8% of 1225 clips</title></rect>
+<text x="650.0" y="115.7" text-anchor="middle" fill="#333" font-weight="600">15.8% (194)</text>
+<text x="623.5" y="298" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
+<text x="623.5" y="314" text-anchor="middle" fill="#666" font-size="10">1225 clips · med lat 6.17s</text>
 <rect x="60.0" y="342.0" width="11" height="11" fill="#c0392b"/>
 <text x="76.0" y="351.0" fill="#333">interrupted customer clip (agent talked over customer audio)</text>
 <rect x="390.0" y="342.0" width="11" height="11" fill="#888888"/>
@@ -227,10 +224,10 @@ Averages are computed over the all-pass intersection (tasks where every model sc
 
 | metric | OAI | GROK | GEM | CAS |
 | --- | ---: | ---: | ---: | ---: |
-| avg response latency | 2.57s | 2.31s | 2.16s | 4.59s |
-| avg response duration | 4.65s | 4.78s | 2.68s | 4.10s |
-| avg game duration | 41.11s | 46.19s | 35.65s | 60.69s |
-| avg human baseline (recording duration) | 25.58s | — | — | — |
+| avg response latency | 5.44s | 6.12s | 5.84s | 7.04s |
+| avg response duration | 3.83s | 6.85s | 2.88s | 6.81s |
+| avg game duration | 47.46s | 67.01s | 49.85s | 77.47s |
+| avg human baseline (recording duration) | 22.51s | — | — | — |
 
 #### Failure-tag breakdown
 
@@ -240,53 +237,33 @@ Tag totals are occurrence counts — a single imperfect run can sit in more than
 
 <svg viewBox="0 0 720 540" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:720px;font:11px sans-serif;display:block;margin:8px 0;">
 <text x="50" y="14" font-weight="700" fill="#222">Silent issues · agent committed without verbalizing (occurrences)</text>
-<line x1="50" x2="704" y1="382.0" y2="382.0" stroke="#eee"/>
+<line x1="50.0" x2="704.0" y1="382.0" y2="382.0" stroke="#eee"/>
 <text x="44" y="385.0" text-anchor="end" fill="#666">0</text>
-<line x1="50" x2="704" y1="331.4" y2="331.4" stroke="#eee"/>
-<text x="44" y="334.4" text-anchor="end" fill="#666">5</text>
-<line x1="50" x2="704" y1="280.9" y2="280.9" stroke="#eee"/>
-<text x="44" y="283.9" text-anchor="end" fill="#666">10</text>
-<line x1="50" x2="704" y1="230.3" y2="230.3" stroke="#eee"/>
-<text x="44" y="233.3" text-anchor="end" fill="#666">15</text>
-<line x1="50" x2="704" y1="179.7" y2="179.7" stroke="#eee"/>
-<text x="44" y="182.7" text-anchor="end" fill="#666">20</text>
-<line x1="50" x2="704" y1="129.1" y2="129.1" stroke="#eee"/>
-<text x="44" y="132.1" text-anchor="end" fill="#666">25</text>
-<line x1="50" x2="704" y1="78.6" y2="78.6" stroke="#eee"/>
-<text x="44" y="81.6" text-anchor="end" fill="#666">30</text>
-<line x1="50" x2="704" y1="28.0" y2="28.0" stroke="#eee"/>
-<text x="44" y="31.0" text-anchor="end" fill="#666">35</text>
-<line x1="50" x2="704" y1="382.0" y2="382.0" stroke="#333"/>
-<rect x="116.8" y="331.4" width="80" height="50.6" fill="#1f3a78" stroke="#fff" stroke-width="1"><title>OAI · extra · preemptive (VAD fired pre-customer): 5</title></rect>
-<text x="156.8" y="360.7" text-anchor="middle" fill="#fff" font-weight="600">5</text>
-<rect x="116.8" y="159.5" width="80" height="171.9" fill="#3a5fb0" stroke="#fff" stroke-width="1"><title>OAI · extra · silent: 17</title></rect>
-<text x="156.8" y="249.5" text-anchor="middle" fill="#fff" font-weight="600">17</text>
-<rect x="116.8" y="98.8" width="80" height="60.7" fill="#7a3aa8" stroke="#fff" stroke-width="1"><title>OAI · wrong-item · silent: 6</title></rect>
-<text x="156.8" y="133.1" text-anchor="middle" fill="#fff" font-weight="600">6</text>
-<rect x="116.8" y="28.0" width="80" height="70.8" fill="#c89df0" stroke="#fff" stroke-width="1"><title>OAI · wrong-option-or-variant · silent: 7</title></rect>
-<text x="156.8" y="67.4" text-anchor="middle" fill="#fff" font-weight="600">7</text>
-<text x="156.8" y="22.0" text-anchor="middle" fill="#222" font-weight="700">35</text>
-<text x="156.8" y="400.0" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
-<rect x="263.6" y="311.2" width="80" height="70.8" fill="#3a5fb0" stroke="#fff" stroke-width="1"><title>GEM · extra · silent: 7</title></rect>
-<text x="303.6" y="350.6" text-anchor="middle" fill="#fff" font-weight="600">7</text>
-<rect x="263.6" y="250.5" width="80" height="60.7" fill="#c89df0" stroke="#fff" stroke-width="1"><title>GEM · wrong-option-or-variant · silent: 6</title></rect>
-<text x="303.6" y="284.9" text-anchor="middle" fill="#fff" font-weight="600">6</text>
-<text x="303.6" y="244.5" text-anchor="middle" fill="#222" font-weight="700">13</text>
-<text x="303.6" y="400.0" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
-<rect x="410.4" y="371.9" width="80" height="10.1" fill="#1f3a78" stroke="#fff" stroke-width="1"><title>CAS · extra · preemptive (VAD fired pre-customer): 1</title></rect>
-<rect x="410.4" y="361.8" width="80" height="10.1" fill="#3a5fb0" stroke="#fff" stroke-width="1"><title>CAS · extra · silent: 1</title></rect>
-<rect x="410.4" y="341.5" width="80" height="20.2" fill="#7a3aa8" stroke="#fff" stroke-width="1"><title>CAS · wrong-item · silent: 2</title></rect>
-<text x="450.4" y="355.7" text-anchor="middle" fill="#fff" font-weight="600">2</text>
-<rect x="410.4" y="250.5" width="80" height="91.0" fill="#c89df0" stroke="#fff" stroke-width="1"><title>CAS · wrong-option-or-variant · silent: 9</title></rect>
-<text x="450.4" y="300.0" text-anchor="middle" fill="#fff" font-weight="600">9</text>
-<text x="450.4" y="244.5" text-anchor="middle" fill="#222" font-weight="700">13</text>
-<text x="450.4" y="400.0" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
-<rect x="557.2" y="361.8" width="80" height="20.2" fill="#3a5fb0" stroke="#fff" stroke-width="1"><title>GROK · extra · silent: 2</title></rect>
-<text x="597.2" y="375.9" text-anchor="middle" fill="#fff" font-weight="600">2</text>
-<rect x="557.2" y="331.4" width="80" height="30.3" fill="#c89df0" stroke="#fff" stroke-width="1"><title>GROK · wrong-option-or-variant · silent: 3</title></rect>
-<text x="597.2" y="350.6" text-anchor="middle" fill="#fff" font-weight="600">3</text>
-<text x="597.2" y="325.4" text-anchor="middle" fill="#222" font-weight="700">5</text>
-<text x="597.2" y="400.0" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
+<line x1="50.0" x2="704.0" y1="264.0" y2="264.0" stroke="#eee"/>
+<text x="44" y="267.0" text-anchor="end" fill="#666">10</text>
+<line x1="50.0" x2="704.0" y1="146.0" y2="146.0" stroke="#eee"/>
+<text x="44" y="149.0" text-anchor="end" fill="#666">20</text>
+<line x1="50.0" x2="704.0" y1="28.0" y2="28.0" stroke="#eee"/>
+<text x="44" y="31.0" text-anchor="end" fill="#666">30</text>
+<line x1="50.0" x2="704.0" y1="382.0" y2="382.0" stroke="#333"/>
+<rect x="116.8" y="287.6" width="80" height="94.4" fill="#1f3a78" stroke="#fff" stroke-width="1"><title>OAI · extra · preemptive (VAD fired pre-customer): 8</title></rect>
+<text x="156.8" y="338.8" text-anchor="middle" fill="#fff" font-weight="600">8</text>
+<rect x="116.8" y="110.6" width="80" height="177.0" fill="#3a5fb0" stroke="#fff" stroke-width="1"><title>OAI · extra · silent: 15</title></rect>
+<text x="156.8" y="203.1" text-anchor="middle" fill="#fff" font-weight="600">15</text>
+<rect x="116.8" y="51.6" width="80" height="59.0" fill="#c89df0" stroke="#fff" stroke-width="1"><title>OAI · wrong-option-or-variant · silent: 5</title></rect>
+<text x="156.8" y="85.1" text-anchor="middle" fill="#fff" font-weight="600">5</text>
+<text x="156.8" y="400" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
+<rect x="263.6" y="311.2" width="80" height="70.8" fill="#3a5fb0" stroke="#fff" stroke-width="1"><title>GEM · extra · silent: 6</title></rect>
+<text x="303.6" y="350.6" text-anchor="middle" fill="#fff" font-weight="600">6</text>
+<text x="303.6" y="400" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
+<rect x="410.4" y="334.8" width="80" height="47.2" fill="#3a5fb0" stroke="#fff" stroke-width="1"><title>CAS · extra · silent: 4</title></rect>
+<text x="450.4" y="362.4" text-anchor="middle" fill="#fff" font-weight="600">4</text>
+<rect x="410.4" y="323.0" width="80" height="11.8" fill="#c89df0" stroke="#fff" stroke-width="1"><title>CAS · wrong-option-or-variant · silent: 1</title></rect>
+<text x="450.4" y="400" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
+<rect x="557.2" y="334.8" width="80" height="47.2" fill="#3a5fb0" stroke="#fff" stroke-width="1"><title>GROK · extra · silent: 4</title></rect>
+<text x="597.2" y="362.4" text-anchor="middle" fill="#fff" font-weight="600">4</text>
+<rect x="557.2" y="323.0" width="80" height="11.8" fill="#c89df0" stroke="#fff" stroke-width="1"><title>GROK · wrong-option-or-variant · silent: 1</title></rect>
+<text x="597.2" y="400" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
 <rect x="50.0" y="426.0" width="11" height="11" fill="#1f3a78"/>
 <text x="66.0" y="435.0" fill="#333">extra · preemptive (VAD fired pre-customer)</text>
 <rect x="310.0" y="426.0" width="11" height="11" fill="#3a5fb0"/>
@@ -306,54 +283,41 @@ The three item-level cart-diff categories cover distinct kinds of mismatch:
 
 <svg viewBox="0 0 720 540" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:720px;font:11px sans-serif;display:block;margin:8px 0;">
 <text x="50" y="14" font-weight="700" fill="#222">Read-back issues · agent verbalized but value was wrong (occurrences)</text>
-<line x1="50" x2="704" y1="382.0" y2="382.0" stroke="#eee"/>
+<line x1="50.0" x2="704.0" y1="382.0" y2="382.0" stroke="#eee"/>
 <text x="44" y="385.0" text-anchor="end" fill="#666">0</text>
-<line x1="50" x2="704" y1="331.4" y2="331.4" stroke="#eee"/>
-<text x="44" y="334.4" text-anchor="end" fill="#666">6</text>
-<line x1="50" x2="704" y1="280.9" y2="280.9" stroke="#eee"/>
-<text x="44" y="283.9" text-anchor="end" fill="#666">11</text>
-<line x1="50" x2="704" y1="230.3" y2="230.3" stroke="#eee"/>
-<text x="44" y="233.3" text-anchor="end" fill="#666">17</text>
-<line x1="50" x2="704" y1="179.7" y2="179.7" stroke="#eee"/>
-<text x="44" y="182.7" text-anchor="end" fill="#666">23</text>
-<line x1="50" x2="704" y1="129.1" y2="129.1" stroke="#eee"/>
-<text x="44" y="132.1" text-anchor="end" fill="#666">29</text>
-<line x1="50" x2="704" y1="78.6" y2="78.6" stroke="#eee"/>
-<text x="44" y="81.6" text-anchor="end" fill="#666">34</text>
-<line x1="50" x2="704" y1="28.0" y2="28.0" stroke="#eee"/>
-<text x="44" y="31.0" text-anchor="end" fill="#666">40</text>
-<line x1="50" x2="704" y1="382.0" y2="382.0" stroke="#333"/>
-<rect x="116.8" y="337.8" width="80" height="44.2" fill="#216e62" stroke="#fff" stroke-width="1"><title>OAI · extra · read-back · preemptive: 5</title></rect>
-<text x="156.8" y="363.9" text-anchor="middle" fill="#fff" font-weight="600">5</text>
-<rect x="116.8" y="205.0" width="80" height="132.8" fill="#3aa898" stroke="#fff" stroke-width="1"><title>OAI · extra · read-back: 15</title></rect>
-<text x="156.8" y="275.4" text-anchor="middle" fill="#fff" font-weight="600">15</text>
-<rect x="116.8" y="125.4" width="80" height="79.6" fill="#a35a1e" stroke="#fff" stroke-width="1"><title>OAI · wrong-item · read-back: 9</title></rect>
-<text x="156.8" y="169.2" text-anchor="middle" fill="#fff" font-weight="600">9</text>
-<rect x="116.8" y="36.9" width="80" height="88.5" fill="#e0a070" stroke="#fff" stroke-width="1"><title>OAI · wrong-option-or-variant · read-back: 10</title></rect>
-<text x="156.8" y="85.1" text-anchor="middle" fill="#fff" font-weight="600">10</text>
-<text x="156.8" y="30.9" text-anchor="middle" fill="#222" font-weight="700">39</text>
-<text x="156.8" y="400.0" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
-<rect x="263.6" y="302.4" width="80" height="79.6" fill="#3aa898" stroke="#fff" stroke-width="1"><title>GEM · extra · read-back: 9</title></rect>
-<text x="303.6" y="346.2" text-anchor="middle" fill="#fff" font-weight="600">9</text>
-<rect x="263.6" y="284.6" width="80" height="17.7" fill="#a35a1e" stroke="#fff" stroke-width="1"><title>GEM · wrong-item · read-back: 2</title></rect>
-<text x="303.6" y="297.5" text-anchor="middle" fill="#fff" font-weight="600">2</text>
-<rect x="263.6" y="178.5" width="80" height="106.2" fill="#e0a070" stroke="#fff" stroke-width="1"><title>GEM · wrong-option-or-variant · read-back: 12</title></rect>
-<text x="303.6" y="235.6" text-anchor="middle" fill="#fff" font-weight="600">12</text>
-<text x="303.6" y="172.5" text-anchor="middle" fill="#222" font-weight="700">23</text>
-<text x="303.6" y="400.0" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
-<rect x="410.4" y="311.2" width="80" height="70.8" fill="#3aa898" stroke="#fff" stroke-width="1"><title>CAS · extra · read-back: 8</title></rect>
-<text x="450.4" y="350.6" text-anchor="middle" fill="#fff" font-weight="600">8</text>
-<rect x="410.4" y="302.4" width="80" height="8.8" fill="#a35a1e" stroke="#fff" stroke-width="1"><title>CAS · wrong-item · read-back: 1</title></rect>
-<rect x="410.4" y="187.3" width="80" height="115.1" fill="#e0a070" stroke="#fff" stroke-width="1"><title>CAS · wrong-option-or-variant · read-back: 13</title></rect>
-<text x="450.4" y="248.8" text-anchor="middle" fill="#fff" font-weight="600">13</text>
-<text x="450.4" y="181.3" text-anchor="middle" fill="#222" font-weight="700">22</text>
-<text x="450.4" y="400.0" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
-<rect x="557.2" y="178.5" width="80" height="203.5" fill="#3aa898" stroke="#fff" stroke-width="1"><title>GROK · extra · read-back: 23</title></rect>
-<text x="597.2" y="284.2" text-anchor="middle" fill="#fff" font-weight="600">23</text>
-<rect x="557.2" y="81.1" width="80" height="97.3" fill="#e0a070" stroke="#fff" stroke-width="1"><title>GROK · wrong-option-or-variant · read-back: 11</title></rect>
-<text x="597.2" y="133.8" text-anchor="middle" fill="#fff" font-weight="600">11</text>
-<text x="597.2" y="75.1" text-anchor="middle" fill="#222" font-weight="700">34</text>
-<text x="597.2" y="400.0" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
+<line x1="50.0" x2="704.0" y1="311.2" y2="311.2" stroke="#eee"/>
+<text x="44" y="314.2" text-anchor="end" fill="#666">10</text>
+<line x1="50.0" x2="704.0" y1="240.4" y2="240.4" stroke="#eee"/>
+<text x="44" y="243.4" text-anchor="end" fill="#666">20</text>
+<line x1="50.0" x2="704.0" y1="169.6" y2="169.6" stroke="#eee"/>
+<text x="44" y="172.6" text-anchor="end" fill="#666">30</text>
+<line x1="50.0" x2="704.0" y1="98.8" y2="98.8" stroke="#eee"/>
+<text x="44" y="101.8" text-anchor="end" fill="#666">40</text>
+<line x1="50.0" x2="704.0" y1="28.0" y2="28.0" stroke="#eee"/>
+<text x="44" y="31.0" text-anchor="end" fill="#666">50</text>
+<line x1="50.0" x2="704.0" y1="382.0" y2="382.0" stroke="#333"/>
+<rect x="116.8" y="360.8" width="80" height="21.2" fill="#216e62" stroke="#fff" stroke-width="1"><title>OAI · extra · read-back · preemptive: 3</title></rect>
+<text x="156.8" y="375.4" text-anchor="middle" fill="#fff" font-weight="600">3</text>
+<rect x="116.8" y="247.5" width="80" height="113.3" fill="#3aa898" stroke="#fff" stroke-width="1"><title>OAI · extra · read-back: 16</title></rect>
+<text x="156.8" y="308.1" text-anchor="middle" fill="#fff" font-weight="600">16</text>
+<rect x="116.8" y="190.8" width="80" height="56.6" fill="#e0a070" stroke="#fff" stroke-width="1"><title>OAI · wrong-option-or-variant · read-back: 8</title></rect>
+<text x="156.8" y="223.2" text-anchor="middle" fill="#fff" font-weight="600">8</text>
+<text x="156.8" y="400" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
+<rect x="263.6" y="240.4" width="80" height="141.6" fill="#3aa898" stroke="#fff" stroke-width="1"><title>GEM · extra · read-back: 20</title></rect>
+<text x="303.6" y="315.2" text-anchor="middle" fill="#fff" font-weight="600">20</text>
+<rect x="263.6" y="190.8" width="80" height="49.6" fill="#e0a070" stroke="#fff" stroke-width="1"><title>GEM · wrong-option-or-variant · read-back: 7</title></rect>
+<text x="303.6" y="219.6" text-anchor="middle" fill="#fff" font-weight="600">7</text>
+<text x="303.6" y="400" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
+<rect x="410.4" y="212.1" width="80" height="169.9" fill="#3aa898" stroke="#fff" stroke-width="1"><title>CAS · extra · read-back: 24</title></rect>
+<text x="450.4" y="301.0" text-anchor="middle" fill="#fff" font-weight="600">24</text>
+<rect x="410.4" y="120.0" width="80" height="92.0" fill="#e0a070" stroke="#fff" stroke-width="1"><title>CAS · wrong-option-or-variant · read-back: 13</title></rect>
+<text x="450.4" y="170.1" text-anchor="middle" fill="#fff" font-weight="600">13</text>
+<text x="450.4" y="400" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
+<rect x="557.2" y="169.6" width="80" height="212.4" fill="#3aa898" stroke="#fff" stroke-width="1"><title>GROK · extra · read-back: 30</title></rect>
+<text x="597.2" y="279.8" text-anchor="middle" fill="#fff" font-weight="600">30</text>
+<rect x="557.2" y="63.4" width="80" height="106.2" fill="#e0a070" stroke="#fff" stroke-width="1"><title>GROK · wrong-option-or-variant · read-back: 15</title></rect>
+<text x="597.2" y="120.5" text-anchor="middle" fill="#fff" font-weight="600">15</text>
+<text x="597.2" y="400" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
 <rect x="50.0" y="426.0" width="11" height="11" fill="#216e62"/>
 <text x="66.0" y="435.0" fill="#333">extra · read-back · preemptive</text>
 <rect x="310.0" y="426.0" width="11" height="11" fill="#3aa898"/>
@@ -368,78 +332,62 @@ The bands carry the same three item-level categories as the silent plot — `ext
 
 <svg viewBox="0 0 720 540" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:720px;font:11px sans-serif;display:block;margin:8px 0;">
 <text x="50" y="14" font-weight="700" fill="#222">Missing-item failures (occurrences)</text>
-<line x1="50" x2="704" y1="382.0" y2="382.0" stroke="#eee"/>
+<line x1="50.0" x2="704.0" y1="382.0" y2="382.0" stroke="#eee"/>
 <text x="44" y="385.0" text-anchor="end" fill="#666">0</text>
-<line x1="50" x2="704" y1="323.0" y2="323.0" stroke="#eee"/>
-<text x="44" y="326.0" text-anchor="end" fill="#666">15</text>
-<line x1="50" x2="704" y1="264.0" y2="264.0" stroke="#eee"/>
-<text x="44" y="267.0" text-anchor="end" fill="#666">30</text>
-<line x1="50" x2="704" y1="205.0" y2="205.0" stroke="#eee"/>
-<text x="44" y="208.0" text-anchor="end" fill="#666">45</text>
-<line x1="50" x2="704" y1="146.0" y2="146.0" stroke="#eee"/>
-<text x="44" y="149.0" text-anchor="end" fill="#666">60</text>
-<line x1="50" x2="704" y1="87.0" y2="87.0" stroke="#eee"/>
-<text x="44" y="90.0" text-anchor="end" fill="#666">75</text>
-<line x1="50" x2="704" y1="28.0" y2="28.0" stroke="#eee"/>
-<text x="44" y="31.0" text-anchor="end" fill="#666">90</text>
-<line x1="50" x2="704" y1="382.0" y2="382.0" stroke="#333"/>
-<rect x="116.8" y="374.1" width="80" height="7.9" fill="#5a0e0e" stroke="#fff" stroke-width="1"><title>OAI · not-detected (main clip played, 8s watchdog): 2</title></rect>
-<rect x="116.8" y="323.0" width="80" height="51.1" fill="#8b1818" stroke="#fff" stroke-width="1"><title>OAI · premature submit: 13</title></rect>
-<text x="156.8" y="352.6" text-anchor="middle" fill="#fff" font-weight="600">13</text>
-<rect x="116.8" y="311.2" width="80" height="11.8" fill="#a32020" stroke="#fff" stroke-width="1"><title>OAI · clarify abandoned: 3</title></rect>
-<rect x="116.8" y="307.3" width="80" height="3.9" fill="#c44848" stroke="#fff" stroke-width="1"><title>OAI · compound line: 1</title></rect>
-<rect x="116.8" y="283.7" width="80" height="23.6" fill="#dd8888" stroke="#fff" stroke-width="1"><title>OAI · other / unattributed: 6</title></rect>
-<text x="156.8" y="299.5" text-anchor="middle" fill="#fff" font-weight="600">6</text>
-<rect x="116.8" y="279.7" width="80" height="3.9" fill="#7a3a0a" stroke="#fff" stroke-width="1"><title>OAI · missing-answer · off-policy ask: 1</title></rect>
-<rect x="116.8" y="275.8" width="80" height="3.9" fill="#e0a070" stroke="#fff" stroke-width="1"><title>OAI · missing-answer · unaudited: 1</title></rect>
-<text x="156.8" y="269.8" text-anchor="middle" fill="#222" font-weight="700">27</text>
-<text x="156.8" y="400.0" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
-<rect x="263.6" y="275.8" width="80" height="106.2" fill="#5a0e0e" stroke="#fff" stroke-width="1"><title>GEM · not-detected (main clip played, 8s watchdog): 27</title></rect>
-<text x="303.6" y="332.9" text-anchor="middle" fill="#fff" font-weight="600">27</text>
-<rect x="263.6" y="260.1" width="80" height="15.7" fill="#8b1818" stroke="#fff" stroke-width="1"><title>GEM · premature submit: 4</title></rect>
-<text x="303.6" y="271.9" text-anchor="middle" fill="#fff" font-weight="600">4</text>
-<rect x="263.6" y="224.7" width="80" height="35.4" fill="#a32020" stroke="#fff" stroke-width="1"><title>GEM · clarify abandoned: 9</title></rect>
-<text x="303.6" y="246.4" text-anchor="middle" fill="#fff" font-weight="600">9</text>
-<rect x="263.6" y="205.0" width="80" height="19.7" fill="#c44848" stroke="#fff" stroke-width="1"><title>GEM · compound line: 5</title></rect>
-<text x="303.6" y="218.8" text-anchor="middle" fill="#fff" font-weight="600">5</text>
-<rect x="263.6" y="106.7" width="80" height="98.3" fill="#dd8888" stroke="#fff" stroke-width="1"><title>GEM · other / unattributed: 25</title></rect>
-<text x="303.6" y="159.8" text-anchor="middle" fill="#fff" font-weight="600">25</text>
-<rect x="263.6" y="98.8" width="80" height="7.9" fill="#7a3a0a" stroke="#fff" stroke-width="1"><title>GEM · missing-answer · off-policy ask: 2</title></rect>
-<rect x="263.6" y="90.9" width="80" height="7.9" fill="#c2691c" stroke="#fff" stroke-width="1"><title>GEM · missing-answer · on-policy: 2</title></rect>
-<rect x="263.6" y="87.0" width="80" height="3.9" fill="#e0a070" stroke="#fff" stroke-width="1"><title>GEM · missing-answer · unaudited: 1</title></rect>
-<text x="303.6" y="81.0" text-anchor="middle" fill="#222" font-weight="700">75</text>
-<text x="303.6" y="400.0" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
-<rect x="410.4" y="346.6" width="80" height="35.4" fill="#5a0e0e" stroke="#fff" stroke-width="1"><title>CAS · not-detected (main clip played, 8s watchdog): 9</title></rect>
-<text x="450.4" y="368.3" text-anchor="middle" fill="#fff" font-weight="600">9</text>
-<rect x="410.4" y="267.9" width="80" height="78.7" fill="#8b1818" stroke="#fff" stroke-width="1"><title>CAS · premature submit: 20</title></rect>
-<text x="450.4" y="311.3" text-anchor="middle" fill="#fff" font-weight="600">20</text>
-<rect x="410.4" y="240.4" width="80" height="27.5" fill="#a32020" stroke="#fff" stroke-width="1"><title>CAS · clarify abandoned: 7</title></rect>
-<text x="450.4" y="258.2" text-anchor="middle" fill="#fff" font-weight="600">7</text>
-<rect x="410.4" y="236.5" width="80" height="3.9" fill="#c44848" stroke="#fff" stroke-width="1"><title>CAS · compound line: 1</title></rect>
-<rect x="410.4" y="181.4" width="80" height="55.1" fill="#dd8888" stroke="#fff" stroke-width="1"><title>CAS · other / unattributed: 14</title></rect>
-<text x="450.4" y="212.9" text-anchor="middle" fill="#fff" font-weight="600">14</text>
-<rect x="410.4" y="114.5" width="80" height="66.9" fill="#7a3a0a" stroke="#fff" stroke-width="1"><title>CAS · missing-answer · off-policy ask: 17</title></rect>
-<text x="450.4" y="152.0" text-anchor="middle" fill="#fff" font-weight="600">17</text>
-<rect x="410.4" y="106.7" width="80" height="7.9" fill="#c2691c" stroke="#fff" stroke-width="1"><title>CAS · missing-answer · on-policy: 2</title></rect>
-<rect x="410.4" y="94.9" width="80" height="11.8" fill="#e0a070" stroke="#fff" stroke-width="1"><title>CAS · missing-answer · unaudited: 3</title></rect>
-<text x="450.4" y="88.9" text-anchor="middle" fill="#222" font-weight="700">73</text>
-<text x="450.4" y="400.0" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
-<rect x="557.2" y="358.4" width="80" height="23.6" fill="#5a0e0e" stroke="#fff" stroke-width="1"><title>GROK · not-detected (main clip played, 8s watchdog): 6</title></rect>
-<text x="597.2" y="374.2" text-anchor="middle" fill="#fff" font-weight="600">6</text>
-<rect x="557.2" y="319.1" width="80" height="39.3" fill="#8b1818" stroke="#fff" stroke-width="1"><title>GROK · premature submit: 10</title></rect>
-<text x="597.2" y="342.7" text-anchor="middle" fill="#fff" font-weight="600">10</text>
-<rect x="557.2" y="248.3" width="80" height="70.8" fill="#a32020" stroke="#fff" stroke-width="1"><title>GROK · clarify abandoned: 18</title></rect>
-<text x="597.2" y="287.7" text-anchor="middle" fill="#fff" font-weight="600">18</text>
-<rect x="557.2" y="220.7" width="80" height="27.5" fill="#c44848" stroke="#fff" stroke-width="1"><title>GROK · compound line: 7</title></rect>
-<text x="597.2" y="238.5" text-anchor="middle" fill="#fff" font-weight="600">7</text>
-<rect x="557.2" y="126.3" width="80" height="94.4" fill="#dd8888" stroke="#fff" stroke-width="1"><title>GROK · other / unattributed: 24</title></rect>
-<text x="597.2" y="177.5" text-anchor="middle" fill="#fff" font-weight="600">24</text>
-<rect x="557.2" y="110.6" width="80" height="15.7" fill="#7a3a0a" stroke="#fff" stroke-width="1"><title>GROK · missing-answer · off-policy ask: 4</title></rect>
-<text x="597.2" y="122.5" text-anchor="middle" fill="#fff" font-weight="600">4</text>
-<rect x="557.2" y="83.1" width="80" height="27.5" fill="#c2691c" stroke="#fff" stroke-width="1"><title>GROK · missing-answer · on-policy: 7</title></rect>
-<text x="597.2" y="100.8" text-anchor="middle" fill="#fff" font-weight="600">7</text>
-<text x="597.2" y="77.1" text-anchor="middle" fill="#222" font-weight="700">76</text>
-<text x="597.2" y="400.0" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
+<line x1="50.0" x2="704.0" y1="311.2" y2="311.2" stroke="#eee"/>
+<text x="44" y="314.2" text-anchor="end" fill="#666">20</text>
+<line x1="50.0" x2="704.0" y1="240.4" y2="240.4" stroke="#eee"/>
+<text x="44" y="243.4" text-anchor="end" fill="#666">40</text>
+<line x1="50.0" x2="704.0" y1="169.6" y2="169.6" stroke="#eee"/>
+<text x="44" y="172.6" text-anchor="end" fill="#666">60</text>
+<line x1="50.0" x2="704.0" y1="98.8" y2="98.8" stroke="#eee"/>
+<text x="44" y="101.8" text-anchor="end" fill="#666">80</text>
+<line x1="50.0" x2="704.0" y1="28.0" y2="28.0" stroke="#eee"/>
+<text x="44" y="31.0" text-anchor="end" fill="#666">100</text>
+<line x1="50.0" x2="704.0" y1="382.0" y2="382.0" stroke="#333"/>
+<rect x="116.8" y="346.6" width="80" height="35.4" fill="#8b1818" stroke="#fff" stroke-width="1"><title>OAI · premature submit: 10</title></rect>
+<text x="156.8" y="368.3" text-anchor="middle" fill="#fff" font-weight="600">10</text>
+<rect x="116.8" y="339.5" width="80" height="7.1" fill="#a32020" stroke="#fff" stroke-width="1"><title>OAI · clarify abandoned: 2</title></rect>
+<rect x="116.8" y="336.0" width="80" height="3.5" fill="#c44848" stroke="#fff" stroke-width="1"><title>OAI · compound line: 1</title></rect>
+<rect x="116.8" y="272.3" width="80" height="63.7" fill="#dd8888" stroke="#fff" stroke-width="1"><title>OAI · other / unattributed: 18</title></rect>
+<text x="156.8" y="308.1" text-anchor="middle" fill="#fff" font-weight="600">18</text>
+<rect x="116.8" y="268.7" width="80" height="3.5" fill="#7a3a0a" stroke="#fff" stroke-width="1"><title>OAI · missing-answer · off-policy ask: 1</title></rect>
+<rect x="116.8" y="261.6" width="80" height="7.1" fill="#c2691c" stroke="#fff" stroke-width="1"><title>OAI · missing-answer · on-policy: 2</title></rect>
+<text x="156.8" y="400" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
+<rect x="263.6" y="332.4" width="80" height="49.6" fill="#8b1818" stroke="#fff" stroke-width="1"><title>GEM · premature submit: 14</title></rect>
+<text x="303.6" y="361.2" text-anchor="middle" fill="#fff" font-weight="600">14</text>
+<rect x="263.6" y="290.0" width="80" height="42.5" fill="#a32020" stroke="#fff" stroke-width="1"><title>GEM · clarify abandoned: 12</title></rect>
+<text x="303.6" y="315.2" text-anchor="middle" fill="#fff" font-weight="600">12</text>
+<rect x="263.6" y="279.3" width="80" height="10.6" fill="#c44848" stroke="#fff" stroke-width="1"><title>GEM · compound line: 3</title></rect>
+<rect x="263.6" y="137.7" width="80" height="141.6" fill="#dd8888" stroke="#fff" stroke-width="1"><title>GEM · other / unattributed: 40</title></rect>
+<text x="303.6" y="212.5" text-anchor="middle" fill="#fff" font-weight="600">40</text>
+<rect x="263.6" y="91.7" width="80" height="46.0" fill="#7a3a0a" stroke="#fff" stroke-width="1"><title>GEM · missing-answer · off-policy ask: 13</title></rect>
+<text x="303.6" y="118.7" text-anchor="middle" fill="#fff" font-weight="600">13</text>
+<rect x="263.6" y="81.1" width="80" height="10.6" fill="#c2691c" stroke="#fff" stroke-width="1"><title>GEM · missing-answer · on-policy: 3</title></rect>
+<rect x="263.6" y="74.0" width="80" height="7.1" fill="#e0a070" stroke="#fff" stroke-width="1"><title>GEM · missing-answer · unaudited: 2</title></rect>
+<text x="303.6" y="400" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
+<rect x="410.4" y="304.1" width="80" height="77.9" fill="#8b1818" stroke="#fff" stroke-width="1"><title>CAS · premature submit: 22</title></rect>
+<text x="450.4" y="347.1" text-anchor="middle" fill="#fff" font-weight="600">22</text>
+<rect x="410.4" y="222.7" width="80" height="81.4" fill="#a32020" stroke="#fff" stroke-width="1"><title>CAS · clarify abandoned: 23</title></rect>
+<text x="450.4" y="267.4" text-anchor="middle" fill="#fff" font-weight="600">23</text>
+<rect x="410.4" y="212.1" width="80" height="10.6" fill="#c44848" stroke="#fff" stroke-width="1"><title>CAS · compound line: 3</title></rect>
+<rect x="410.4" y="123.6" width="80" height="88.5" fill="#dd8888" stroke="#fff" stroke-width="1"><title>CAS · other / unattributed: 25</title></rect>
+<text x="450.4" y="171.8" text-anchor="middle" fill="#fff" font-weight="600">25</text>
+<rect x="410.4" y="42.2" width="80" height="81.4" fill="#7a3a0a" stroke="#fff" stroke-width="1"><title>CAS · missing-answer · off-policy ask: 23</title></rect>
+<text x="450.4" y="86.9" text-anchor="middle" fill="#fff" font-weight="600">23</text>
+<rect x="410.4" y="31.5" width="80" height="10.6" fill="#c2691c" stroke="#fff" stroke-width="1"><title>CAS · missing-answer · on-policy: 3</title></rect>
+<text x="450.4" y="400" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
+<rect x="557.2" y="318.3" width="80" height="63.7" fill="#8b1818" stroke="#fff" stroke-width="1"><title>GROK · premature submit: 18</title></rect>
+<text x="597.2" y="354.1" text-anchor="middle" fill="#fff" font-weight="600">18</text>
+<rect x="557.2" y="293.5" width="80" height="24.8" fill="#a32020" stroke="#fff" stroke-width="1"><title>GROK · clarify abandoned: 7</title></rect>
+<text x="597.2" y="309.9" text-anchor="middle" fill="#fff" font-weight="600">7</text>
+<rect x="557.2" y="286.4" width="80" height="7.1" fill="#c44848" stroke="#fff" stroke-width="1"><title>GROK · compound line: 2</title></rect>
+<rect x="557.2" y="222.7" width="80" height="63.7" fill="#dd8888" stroke="#fff" stroke-width="1"><title>GROK · other / unattributed: 18</title></rect>
+<text x="597.2" y="258.6" text-anchor="middle" fill="#fff" font-weight="600">18</text>
+<rect x="557.2" y="219.2" width="80" height="3.5" fill="#7a3a0a" stroke="#fff" stroke-width="1"><title>GROK · missing-answer · off-policy ask: 1</title></rect>
+<rect x="557.2" y="215.6" width="80" height="3.5" fill="#c2691c" stroke="#fff" stroke-width="1"><title>GROK · missing-answer · on-policy: 1</title></rect>
+<rect x="557.2" y="212.1" width="80" height="3.5" fill="#e0a070" stroke="#fff" stroke-width="1"><title>GROK · missing-answer · unaudited: 1</title></rect>
+<text x="597.2" y="400" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
 <rect x="50.0" y="426.0" width="11" height="11" fill="#5a0e0e"/>
 <text x="66.0" y="435.0" fill="#333">not-detected (main clip played, 8s watchdog)</text>
 <rect x="310.0" y="426.0" width="11" height="11" fill="#8b1818"/>
@@ -477,32 +425,36 @@ The `missing-answer` bands cover a related-but-distinct failure mode: the custom
 When the agent issues an invalid tool call — unknown `item_id`, options that don't match the menu schema, an unknown tool name, or malformed JSON — the tool server returns `ok: false` with an error message. The metric below counts the share of stages where the model emitted at least one such call; one bad call followed by a clean retry is enough to flag the stage.
 
 <svg viewBox="0 0 720 280" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:720px;font:11px sans-serif;display:block;margin:8px 0;">
-<text x="50" y="14" font-weight="700" fill="#222">Malformed tool call rate · share of stages with ≥1 ok=false response (of 254 tasks)</text>
-<line x1="50" x2="704" y1="210.0" y2="210.0" stroke="#eee"/>
+<text x="50" y="14" font-weight="700" fill="#222">Malformed tool call rate · share of stages with ≥1 ok=false response (of 248 tasks)</text>
+<line x1="50.0" x2="704.0" y1="210.0" y2="210.0" stroke="#eee"/>
 <text x="44" y="213.0" text-anchor="end" fill="#666">0%</text>
-<line x1="50" x2="704" y1="149.3" y2="149.3" stroke="#eee"/>
-<text x="44" y="152.3" text-anchor="end" fill="#666">5%</text>
-<line x1="50" x2="704" y1="88.7" y2="88.7" stroke="#eee"/>
-<text x="44" y="91.7" text-anchor="end" fill="#666">10%</text>
-<line x1="50" x2="704" y1="28.0" y2="28.0" stroke="#eee"/>
-<text x="44" y="31.0" text-anchor="end" fill="#666">15%</text>
-<line x1="50" x2="704" y1="210.0" y2="210.0" stroke="#333"/>
-<rect x="116.8" y="195.7" width="80" height="14.3" fill="#c75300" stroke="#fff" stroke-width="1"><title>OAI: 3 / 254 stages (1.2%)</title></rect>
-<text x="156.8" y="190.7" text-anchor="middle" fill="#222" font-weight="700">1.2%</text>
-<text x="156.8" y="228.0" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
-<text x="156.8" y="242.0" text-anchor="middle" fill="#666">3 / 254</text>
-<rect x="263.6" y="109.7" width="80" height="100.3" fill="#c75300" stroke="#fff" stroke-width="1"><title>GEM: 21 / 254 stages (8.3%)</title></rect>
-<text x="303.6" y="104.7" text-anchor="middle" fill="#222" font-weight="700">8.3%</text>
-<text x="303.6" y="228.0" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
-<text x="303.6" y="242.0" text-anchor="middle" fill="#666">21 / 254</text>
-<rect x="410.4" y="152.7" width="80" height="57.3" fill="#c75300" stroke="#fff" stroke-width="1"><title>CAS: 12 / 254 stages (4.7%)</title></rect>
-<text x="450.4" y="147.7" text-anchor="middle" fill="#222" font-weight="700">4.7%</text>
-<text x="450.4" y="228.0" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
-<text x="450.4" y="242.0" text-anchor="middle" fill="#666">12 / 254</text>
-<rect x="557.2" y="152.7" width="80" height="57.3" fill="#c75300" stroke="#fff" stroke-width="1"><title>GROK: 12 / 254 stages (4.7%)</title></rect>
-<text x="597.2" y="147.7" text-anchor="middle" fill="#222" font-weight="700">4.7%</text>
-<text x="597.2" y="228.0" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
-<text x="597.2" y="242.0" text-anchor="middle" fill="#666">12 / 254</text>
+<line x1="50.0" x2="704.0" y1="173.6" y2="173.6" stroke="#eee"/>
+<text x="44" y="176.6" text-anchor="end" fill="#666">2.5%</text>
+<line x1="50.0" x2="704.0" y1="137.2" y2="137.2" stroke="#eee"/>
+<text x="44" y="140.2" text-anchor="end" fill="#666">5%</text>
+<line x1="50.0" x2="704.0" y1="100.8" y2="100.8" stroke="#eee"/>
+<text x="44" y="103.8" text-anchor="end" fill="#666">7.5%</text>
+<line x1="50.0" x2="704.0" y1="64.4" y2="64.4" stroke="#eee"/>
+<text x="44" y="67.4" text-anchor="end" fill="#666">10%</text>
+<line x1="50.0" x2="704.0" y1="28.0" y2="28.0" stroke="#eee"/>
+<text x="44" y="31.0" text-anchor="end" fill="#666">12.5%</text>
+<line x1="50.0" x2="704.0" y1="210.0" y2="210.0" stroke="#333"/>
+<rect x="116.8" y="180.6" width="80" height="29.4" fill="#c75300" stroke="#fff" stroke-width="1"><title>OAI: 5 / 248 stages (2.0%)</title></rect>
+<text x="156.8" y="175.6" text-anchor="middle" fill="#222" font-weight="700">2.0%</text>
+<text x="156.8" y="228" text-anchor="middle" fill="#222" font-weight="600">OAI</text>
+<text x="156.8" y="242" text-anchor="middle" fill="#666">5 / 248</text>
+<rect x="263.6" y="45.6" width="80" height="164.4" fill="#c75300" stroke="#fff" stroke-width="1"><title>GEM: 28 / 248 stages (11.3%)</title></rect>
+<text x="303.6" y="40.6" text-anchor="middle" fill="#222" font-weight="700">11.3%</text>
+<text x="303.6" y="228" text-anchor="middle" fill="#222" font-weight="600">GEM</text>
+<text x="303.6" y="242" text-anchor="middle" fill="#666">28 / 248</text>
+<rect x="410.4" y="133.7" width="80" height="76.3" fill="#c75300" stroke="#fff" stroke-width="1"><title>CAS: 13 / 248 stages (5.2%)</title></rect>
+<text x="450.4" y="128.7" text-anchor="middle" fill="#222" font-weight="700">5.2%</text>
+<text x="450.4" y="228" text-anchor="middle" fill="#222" font-weight="600">CAS</text>
+<text x="450.4" y="242" text-anchor="middle" fill="#666">13 / 248</text>
+<rect x="557.2" y="168.9" width="80" height="41.1" fill="#c75300" stroke="#fff" stroke-width="1"><title>GROK: 7 / 248 stages (2.8%)</title></rect>
+<text x="597.2" y="163.9" text-anchor="middle" fill="#222" font-weight="700">2.8%</text>
+<text x="597.2" y="228" text-anchor="middle" fill="#222" font-weight="600">GROK</text>
+<text x="597.2" y="242" text-anchor="middle" fill="#666">7 / 248</text>
 </svg>
 
 ### Failure modes

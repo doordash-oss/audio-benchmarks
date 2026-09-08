@@ -1,3 +1,17 @@
+# Copyright 2026 DoorDash, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """M4: the Pipecat model leg.
 
 Wraps an already-connected OrchestratorConnection (the M3 audio leg) in a custom
@@ -134,6 +148,12 @@ class _OrchOutput(BaseOutputTransport):
         # `output_audio_buffer.stopped` event.
         self.audio_frames: int = 0
         self.audio_sample_rate: int | None = None
+        # Bumped once per turn, on the first write_audio_frame call since the
+        # last reset. Lets _StdoutEvents tell "this turn's own already-
+        # started counters" apart from "leftover from a turn that never
+        # closed" (e.g. a CancelFrame mid-utterance) before deciding whether
+        # the defensive reset on BotStartedSpeakingFrame is safe to run.
+        self.turn_generation: int = 0
 
     async def start(self, frame: StartFrame):
         await super().start(frame)
@@ -145,6 +165,8 @@ class _OrchOutput(BaseOutputTransport):
     async def write_audio_frame(self, frame: OutputAudioRawFrame) -> bool:
         self._conn.outgoing.push_bytes(bytes(frame.audio))
         try:
+            if self.audio_frames == 0:
+                self.turn_generation += 1
             nf = int(getattr(frame, "num_frames", 0) or 0)
             self.audio_frames += nf
             if self.audio_sample_rate is None:
@@ -305,6 +327,10 @@ class _StdoutEvents(FrameProcessor):
         # pipeline — OutputAudioRawFrame never flows through this
         # processor for that provider.
         self._output_transport = output_transport
+        # Last _OrchOutput.turn_generation value consumed on a
+        # BotStartedSpeakingFrame — lets process_frame tell this turn's own
+        # in-flight write_audio_frame counters apart from a stale leftover.
+        self._last_seen_generation = 0
 
     @staticmethod
     def _vlog(kind: str, **fields) -> None:
@@ -350,9 +376,22 @@ class _StdoutEvents(FrameProcessor):
         if isinstance(frame, BotStartedSpeakingFrame):
             # Defensive reset on the transport's counters in case the
             # previous turn never closed (e.g. CancelFrame mid-utterance).
+            # Guarded by turn_generation: this frame travels upstream from
+            # the output transport and can arrive after write_audio_frame
+            # has already run for THIS turn, so a blind reset here could
+            # wipe the current turn's own live counters instead of a stale
+            # leftover. If generation hasn't advanced since the last
+            # agent_start we processed, nothing new has been written since
+            # then, so any accumulated counters must be leftovers — safe to
+            # clear. If it has advanced, the current counters belong to
+            # THIS turn and must not be touched.
             if self._output_transport is not None:
                 try:
-                    self._output_transport.take_audio_stats()
+                    gen = self._output_transport.turn_generation
+                    if gen == self._last_seen_generation:
+                        self._output_transport.take_audio_stats()
+                    else:
+                        self._last_seen_generation = gen
                 except Exception:
                     pass
             self._vlog("agent_start")
@@ -439,7 +478,7 @@ def _turn_detection(vad_mode: str) -> TurnDetection:
     `interrupt_response` is enforced separately at the service level via
     _RoleBRealtimeLLM, since Pipecat 1.3.0 has no field for it.
 
-    Native presets (gptRealtime_adapter.js):
+    Benchmark presets:
       fast: threshold 0.6, prefix_padding 1200ms, silence 450ms
       slow: threshold 0.9 (OpenAI defaults for padding/silence)
     """

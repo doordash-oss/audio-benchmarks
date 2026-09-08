@@ -1,14 +1,27 @@
+# Copyright 2026 DoorDash, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Orchestrator audio leg — the vendor-neutral half of the Role B adapter.
 
-Connects to the benchmark orchestrator (shared/orchestrator.js) over its custom
+Connects to the benchmark audio bridge (runtime/audio_bridge.js) over its custom
 WebSocket /signal protocol as the WebRTC *offerer*, establishes one bidirectional
 48 kHz mono PCM16 audio track, and exposes:
   - .outgoing       : OutgoingAudioTrack — push B's audio bytes here (-> B.wav)
   - .incoming_track : the remote MediaStreamTrack carrying A's (customer) audio
-This mirrors connectOrchestrator() in shared/role_b/reference/gptRealtime_adapter.js,
-ported to Python/aiortc. It knows nothing about the model — that's the M4 leg.
+It knows nothing about the model; provider integration belongs to the model leg.
 
-/signal protocol (see shared/orchestrator.js):
+/signal protocol (see runtime/audio_bridge.js):
   - on connect the orchestrator sends {"type":"ready"}
   - we send  {"role","type":"offer","sdp"} then ICE {"role","type":"candidate","candidate":{...}}
   - we recv  {"role","type":"answer","sdp"} and {"role","type":"candidate","candidate":{...}}

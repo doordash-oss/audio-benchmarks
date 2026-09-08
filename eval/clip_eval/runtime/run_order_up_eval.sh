@@ -1,7 +1,21 @@
 #!/bin/bash
+# Copyright 2026 DoorDash, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Run a single Order Up clip-player eval end-to-end.
 #
-# Usage: run_order_up_eval.sh <task_id> [duration_seconds] [--role-b openai|gemini|grok|cascaded] [--clip-player-profile <name>] [--offline]
+# Usage: run_order_up_eval.sh <task_id> [duration_seconds] [--role-b openai|openai-native|openai-fdb|gemini|grok|cascaded] [--offline]
 #
 # Reads order_up_tasks/<task_id>.complex.task.json (the only supported
 # variant). Starts a fresh tool server on a free port, launches
@@ -16,19 +30,16 @@
 
 set -euo pipefail
 
-TASK_ID="${1:?Usage: $0 <task_id> [duration_seconds] [--role-b openai|gemini|ultravox|grok|cascaded] [--clip-player-profile <name>]}"
+TASK_ID="${1:?Usage: $0 <task_id> [duration_seconds] [--role-b openai|openai-native|openai-fdb|gemini|ultravox|grok|cascaded]}"
 shift || true
 # Optional positional duration. Anything starting with "--" is parsed below.
 DURATION_ARG=""
 ROLE_B_CHOICE="${ROLE_B:-openai}"
-CLIP_PLAYER_PROFILE="${CLIP_PLAYER_PROFILE:-}"
 OFFLINE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --role-b) ROLE_B_CHOICE="$2"; shift 2 ;;
     --role-b=*) ROLE_B_CHOICE="${1#*=}"; shift ;;
-    --clip-player-profile) CLIP_PLAYER_PROFILE="$2"; shift 2 ;;
-    --clip-player-profile=*) CLIP_PLAYER_PROFILE="${1#*=}"; shift ;;
     --offline) OFFLINE=1; shift ;;
     *) if [[ -z "$DURATION_ARG" ]]; then DURATION_ARG="$1"; shift; else echo "unexpected arg: $1" >&2; exit 2; fi ;;
   esac
@@ -36,8 +47,8 @@ done
 if [[ "$OFFLINE" == "1" ]]; then
   export CLIP_EVAL_OFFLINE=1
 fi
-if [[ "$ROLE_B_CHOICE" != "openai" && "$ROLE_B_CHOICE" != "gemini" && "$ROLE_B_CHOICE" != "ultravox" && "$ROLE_B_CHOICE" != "grok" && "$ROLE_B_CHOICE" != "cascaded" ]]; then
-  echo "--role-b must be 'openai', 'gemini', 'ultravox', 'grok', or 'cascaded' (got: $ROLE_B_CHOICE)" >&2; exit 2
+if [[ "$ROLE_B_CHOICE" != "openai" && "$ROLE_B_CHOICE" != "openai-native" && "$ROLE_B_CHOICE" != "openai-fdb" && "$ROLE_B_CHOICE" != "gemini" && "$ROLE_B_CHOICE" != "ultravox" && "$ROLE_B_CHOICE" != "grok" && "$ROLE_B_CHOICE" != "cascaded" ]]; then
+  echo "--role-b must be 'openai', 'openai-native', 'openai-fdb', 'gemini', 'ultravox', 'grok', or 'cascaded' (got: $ROLE_B_CHOICE)" >&2; exit 2
 fi
 DURATION_MULT="${DURATION_MULT:-4}"
 DURATION_MIN="${DURATION_MIN:-180}"
@@ -45,6 +56,31 @@ DURATION_MIN="${DURATION_MIN:-180}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/../pipeline/scripts/paths.sh"
+
+# Load eval/.env so provider credentials reach every child process, not just
+# the Node ones. The adapters call dotenv themselves, but the Python scorer and
+# post-run audits read the environment — so a user who followed the documented
+# "put it in eval/.env" path got a `Missing credentials` traceback from the
+# first audit.
+#
+# Values already exported take precedence, matching dotenv's own semantics.
+# `set -a; source` would invert that, so a key exported for a single run would
+# be silently overridden here while the Node side still honored it.
+if [[ -f "$REPO_ROOT/.env" ]]; then
+  while IFS= read -r _line || [[ -n "$_line" ]]; do
+    _line="${_line#"${_line%%[![:space:]]*}"}"          # strip leading space
+    [[ -z "$_line" || "$_line" == \#* || "$_line" != *=* ]] && continue
+    _key="${_line%%=*}"                                  # split on FIRST '='
+    _val="${_line#*=}"                                   # keys may contain '='
+    _key="${_key//[[:space:]]/}"
+    [[ -z "$_key" || -n "${!_key:-}" ]] && continue
+    _val="${_val%\"}"; _val="${_val#\"}"
+    _val="${_val%\'}"; _val="${_val#\'}"
+    export "$_key=$_val"
+  done < "$REPO_ROOT/.env"
+  unset _line _key _val
+fi
+
 TASK_FILE="$TASKS_DIR/${TASK_ID}.complex.task.json"
 TREE_FILE="$TREES_DIR/${TASK_ID}.json"
 TOOL_SERVER="$SCRIPT_DIR/order_up_tool_server.js"
@@ -52,7 +88,9 @@ SCORER="$SCRIPT_DIR/../scoring/score_order_up_cart.py"
 
 # ── Role B (examinee) adapter — selected by --role-b (or $ROLE_B env) ────────
 # Supported values:
-#   openai    → node $SHARED_ROOT/role_b/reference/gptRealtime_adapter.js  (default)
+#   openai    → Pipecat OpenAI Realtime adapter (default)
+#   openai-native → direct OpenAI Realtime WebSocket adapter (no Pipecat)
+#   openai-fdb → retained Full-Duplex-Bench-derived WebRTC implementation
 #   gemini    → pipecat adapter with --provider gemini_live (Gemini Live native S2S)
 #   ultravox  → pipecat adapter with --provider ultravox (Ultravox Realtime S2S)
 #   grok      → pipecat adapter with --provider grok_realtime (xAI Grok Voice Agent S2S)
@@ -62,12 +100,26 @@ SCORER="$SCRIPT_DIR/../scoring/score_order_up_cart.py"
 # adapter that follows clip_eval/docs/contracts/30_role_b_protocol.md.
 # NOTE: the OpenAI token server is ALWAYS started because Role A (clipPlayer)
 # needs it; Role B adapters that don't use it can ignore the passed --tokenServer.
+ORCHESTRATOR_SCRIPT="$AUDIO_BRIDGE"
+ACTIVE_TOKEN_SERVER_SCRIPT="$TOKEN_SERVER_SCRIPT"
 if [[ -z "${ROLE_B_CMD:-}" ]]; then
   case "$ROLE_B_CHOICE" in
     openai)
-      ROLE_B_CMD="node $SHARED_ROOT/role_b/reference/gptRealtime_adapter.js"
+      ROLE_B_CMD="$REPO_ROOT/.venv/bin/python $CLIP_EVAL_ROOT/role_b/pipecat/pipecat_role_b_adapter.py --provider openai"
       ROLE_B_PROVIDER="openai"
       ROLE_B_MODEL="${ROLE_B_MODEL:-${OPENAI_REALTIME_MODEL:-gpt-realtime-2}}"
+      ;;
+    openai-native)
+      ROLE_B_CMD="node $CLIP_EVAL_ROOT/role_b/openai_native/openai_realtime_adapter.js"
+      ROLE_B_PROVIDER="openai_native"
+      ROLE_B_MODEL="${ROLE_B_MODEL:-${OPENAI_REALTIME_MODEL:-gpt-realtime-2}}"
+      ;;
+    openai-fdb)
+      ROLE_B_CMD="node $SHARED_ROOT/role_b/reference/gptRealtime_adapter.js"
+      ROLE_B_PROVIDER="openai_fdb"
+      ROLE_B_MODEL="${ROLE_B_MODEL:-${OPENAI_REALTIME_MODEL:-gpt-realtime-2}}"
+      ORCHESTRATOR_SCRIPT="$SHARED_ROOT/orchestrator.js"
+      ACTIVE_TOKEN_SERVER_SCRIPT="$SHARED_ROOT/role_b/openai_token_server.js"
       ;;
     gemini)
       # --provider gemini_live tells the pipecat adapter to use Gemini Live's
@@ -109,96 +161,46 @@ fi
 # --provider isn't explicitly on the command (e.g. via $ROLE_B_CMD overrides).
 export ROLE_B_PROVIDER
 
-# Pre-pull from GCS: hydrate everything this task needs (manifest, tree,
-# task config, per-stage clips, owning session's transcription + audit +
-# classified_spans + background_noise, shared TTS) in one batched fetch.
-# Skipped in --offline mode (caller's responsibility to ensure cache).
-if [[ "${OFFLINE:-0}" != "1" && "${CLIP_EVAL_OFFLINE:-0}" != "1" ]]; then
-  TASK_ID="$TASK_ID" PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
-    "$REPO_ROOT/.venv/bin/python" - <<'PY' || \
-      echo "[run_order_up] warn: cache_pull_stage failed (will rely on local cache)" >&2
-import os, sys, time
-from clip_eval.pipeline.artifact_store import cache_pull_stage
-t0 = time.time()
-try:
-    cache_pull_stage(os.environ["TASK_ID"])
-    print(f"[run_order_up] cache_pull_stage OK in {time.time()-t0:.1f}s", file=sys.stderr)
-except Exception as e:
-    print(f"[run_order_up] cache_pull_stage error: {e}", file=sys.stderr)
-    raise SystemExit(1)
-PY
+# ── Setup ─────────────────────────────────────────────────────────────────
+# Hydrates the artifact cache (task config, decision tree, customer-clip
+# manifest, WAV clips — skipped in --offline mode), validates the task/tree
+# files, then computes everything needed before any process starts: the
+# skip-on-empty-cart signal, session id, duration, three free ports, the
+# examinee prompt and the configure_tools payload. Emits `export K=V` lines.
+# See order_up_eval_setup.py — kept out of this script so the logic is
+# testable and this file stays a process launcher.
+SETUP_FLAGS=()
+if [[ "${OFFLINE:-0}" == "1" || "${CLIP_EVAL_OFFLINE:-0}" == "1" ]]; then
+  SETUP_FLAGS=(--offline)
 fi
+SETUP_ENV="$(PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+  "$REPO_ROOT/.venv/bin/python" "$SCRIPT_DIR/order_up_eval_setup.py" \
+    "$TASK_ID" "$TASK_FILE" "$TREE_FILE" "$SESSIONS_ROOT" \
+    "$DURATION_MULT" "$DURATION_MIN" "$DURATION_ARG" \
+    "${SETUP_FLAGS[@]+"${SETUP_FLAGS[@]}"}")" || exit 1
+eval "$SETUP_ENV"
 
-if [[ ! -f "$TASK_FILE" ]]; then
-  echo "Missing task file: $TASK_FILE" >&2; exit 1
-fi
-if [[ ! -f "$TREE_FILE" ]]; then
-  echo "Missing decision tree: $TREE_FILE" >&2; exit 1
-fi
-
-# Auto-detect clipPlayer profile from the customer_clips manifest when
-# the caller didn't pin one via --clip-player-profile. The helper picks
-# `restate-on-partial-ack` for stages with any compound-main clip (a
-# main clip whose customer_spans cover ≥2 items — the exact case rule 9
-# of that profile targets), otherwise `default`. Explicit CLI wins.
-if [[ -z "$CLIP_PLAYER_PROFILE" ]]; then
-  # Compute the audio-benchmarks eval root from SCRIPT_DIR directly.
-  # $REPO_ROOT can get clobbered by callers that pre-set the var (e.g.
-  # the FDB wrapper leaks its own REPO_ROOT), so anchor off SCRIPT_DIR
-  # which is set from BASH_SOURCE[0] of THIS script.
-  _EVAL_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-  CLIP_PLAYER_PROFILE="$(TASK_ID="$TASK_ID" \
-      ARTIFACTS_PATH="$ARTIFACTS_PATH" \
-      PYTHONPATH="$_EVAL_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
-      "$_EVAL_ROOT/.venv/bin/python" -m clip_eval.runtime.infer_clip_player_profile "$TASK_ID" || echo default)"
-  echo "[run_order_up] auto-detected clipPlayer profile: $CLIP_PLAYER_PROFILE"
-fi
-
-cd "$REPO_ROOT"
-
-# Skip if every expected item is disabled — repair_state.json drained
-# the cart down to zero items, so there's nothing for the agent to
-# order and no meaningful score to compute. Exits cleanly with a
-# clear message rather than crashing the orchestrator on an empty
-# task or running an eval that's guaranteed to score 0/0.
-N_EXPECTED="$(python3 -c "import json,sys; print(len((json.load(open('$TASK_FILE')).get('expected_cart') or [])))")"
-if [[ "$N_EXPECTED" == "0" ]]; then
+# Skip if every expected item is disabled — repair_state.json drained the
+# cart to zero items, so there is nothing to order and no meaningful score.
+if [[ "${SKIP_EMPTY_CART:-0}" == "1" ]]; then
   echo "[run_order_up] SKIP $TASK_ID: expected_cart is empty (all items disabled by repair pipeline)"
   exit 0
 fi
 
-# Pull the source session id from the task config so we can locate its
-# pre-extracted background-noise clip directory.
-SESSION_ID="$(python3 -c "import json,sys; print(json.load(open('$TASK_FILE')).get('session_id') or '')")"
+cd "$REPO_ROOT"
+
+if [[ -z "$DURATION_ARG" ]]; then
+  echo "[run_order_up] auto-duration: ${DURATION}s (source × ${DURATION_MULT}, min ${DURATION_MIN}s)"
+fi
+echo "[run_order_up] tool_server port=$TOOL_PORT"
+
+# Locate the pre-extracted background-noise clips for the source session.
 NOISE_DIR=""
 if [[ -n "$SESSION_ID" && -d "$NOISE_DIR_ROOT/$SESSION_ID" ]]; then
   NOISE_DIR="$NOISE_DIR_ROOT/$SESSION_ID"
   echo "[run_order_up] noise_dir=$NOISE_DIR"
 else
   echo "[run_order_up] no noise dir for session=$SESSION_ID; clipPlayer will emit digital silence between clips"
-fi
-
-# Auto-compute the duration from the source game window if not provided.
-if [[ -z "$DURATION_ARG" ]]; then
-  DURATION="$(python3 - <<EOF
-import json, math, sys
-t = json.load(open("$TASK_FILE"))
-sid = t.get("session_id"); gi = t.get("game_index")
-src = f"{'$SESSIONS_ROOT'}/{sid}/stage_alignment.json"
-try:
-    a = json.load(open(src))
-    g = a["games"][gi]
-    src_dur = g["audio_end"] - g["audio_start"]
-except Exception:
-    src_dur = 0.0
-mult = float("$DURATION_MULT")
-mn = float("$DURATION_MIN")
-print(int(max(mn, math.ceil(src_dur * mult))))
-EOF
-)"
-  echo "[run_order_up] auto-duration: ${DURATION}s (source × ${DURATION_MULT}, min ${DURATION_MIN}s)"
-else
-  DURATION="$DURATION_ARG"
 fi
 
 # ── Output dir for this run ───────────────────────────────────────────────
@@ -235,58 +237,15 @@ if [[ -z "$RECORD_DIR" ]]; then
 fi
 echo "[run_order_up] record_dir=$RECORD_DIR"
 
-# ── Pick a free port for the tool server ──────────────────────────────────
-TOOL_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')"
-TOOL_URL="http://localhost:${TOOL_PORT}"
-echo "[run_order_up] tool_server port=$TOOL_PORT"
-
-# ── Pull tools + examinee prompt from task file ───────────────────────────
-PROMPT_B="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['examinee_system_prompt'])" "$TASK_FILE")"
-# Optional eval-time examinee-prompt override. When EXAMINEE_PROMPT_OVERRIDE_FILE
-# points at a readable file, its contents replace the baked
-# examinee_system_prompt for this run — used by the --agent-lang experiment
-# (e.g. "blind": strip the baked language directive so the agent is NOT told
-# which language the customer speaks). The override feeds BOTH the live Role B
-# prompt (below) and the prompt.json snapshot, so recorded runs stay faithful.
-if [[ -n "${EXAMINEE_PROMPT_OVERRIDE_FILE:-}" ]]; then
-  if [[ -f "$EXAMINEE_PROMPT_OVERRIDE_FILE" ]]; then
-    PROMPT_B="$(cat "$EXAMINEE_PROMPT_OVERRIDE_FILE")"
-    echo "[run_order_up] examinee prompt OVERRIDDEN from $EXAMINEE_PROMPT_OVERRIDE_FILE (len=${#PROMPT_B})" >&2
-  else
-    echo "[run_order_up] warn: EXAMINEE_PROMPT_OVERRIDE_FILE not found: $EXAMINEE_PROMPT_OVERRIDE_FILE (using baked prompt)" >&2
-  fi
-fi
-TOOLS_JSON="$(python3 -c "
-import json, sys
-t=json.load(open(sys.argv[1]))
-print(json.dumps({'type':'configure_tools','tools':t['tools'],'serverUrl':sys.argv[2]}))
-" "$TASK_FILE" "$TOOL_URL")"
-
-# Snapshot the EXACT prompt + tools the examinee was given on this run.
-# Stored next to the recording so historical runs are reproducible even if
-# the task config changes later.
-# Pass values via the environment (not shell-interpolated into the Python
-# source) so a ROLE_B_CMD containing quotes/backslashes/newlines can't break
-# the generated snapshot. Quoted heredoc (<<'EOF') = no shell expansion inside.
+# Snapshot the EXACT prompt + tools the examinee was given on this run,
+# next to the recording, so historical runs stay reproducible even if the
+# task config changes later. Values go through the environment (not
+# shell-interpolated) so a ROLE_B_CMD containing quotes, backslashes or
+# newlines cannot break the snapshot. See order_up_eval_snapshot.py.
 ROLE_B_CMD="$ROLE_B_CMD" ROLE_B_PROVIDER="$ROLE_B_PROVIDER" ROLE_B_MODEL="$ROLE_B_MODEL" \
 TASK_FILE="$TASK_FILE" RECORD_DIR="$RECORD_DIR" TOOL_URL="$TOOL_URL" DURATION="$DURATION" \
 PROMPT_B="$PROMPT_B" \
-python3 - <<'EOF'
-import json, os
-t = json.load(open(os.environ["TASK_FILE"]))
-snapshot = {
-    "task_id": t["task_id"],
-    "model": os.environ["ROLE_B_MODEL"],
-    "role_b_provider": os.environ["ROLE_B_PROVIDER"],
-    "role_b_cmd": os.environ["ROLE_B_CMD"],
-    "examinee_system_prompt": os.environ["PROMPT_B"],
-    "tools": t["tools"],
-    "menu_sample": t.get("menu_sample"),
-    "tool_server_url": os.environ["TOOL_URL"],
-    "duration_seconds": int(os.environ["DURATION"]),
-}
-open(os.path.join(os.environ["RECORD_DIR"], "prompt.json"), "w").write(json.dumps(snapshot, indent=2))
-EOF
+  "$REPO_ROOT/.venv/bin/python" "$SCRIPT_DIR/order_up_eval_snapshot.py"
 
 # ── Start tool server ─────────────────────────────────────────────────────
 node "$TOOL_SERVER" \
@@ -323,8 +282,8 @@ trap cleanup EXIT INT TERM
 # Easiest implementation: build the command line ourselves rather than
 # reuse single_conversation.sh, since we need stdin control on adapter B.
 # ─────────────────────────────────────────────────────────────────────────
-SIGNAL_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')"
-TOKEN_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')"
+# SIGNAL_PORT / TOKEN_PORT were allocated by order_up_eval_setup.py alongside
+# TOOL_PORT, so all three come from one place.
 
 export RECORD_DIR
 export SIGNAL_PORT
@@ -334,13 +293,13 @@ export TOKEN_SERVER_PORT="$TOKEN_PORT"
 echo "[run_order_up] orchestrator port=$SIGNAL_PORT  token_server port=$TOKEN_PORT"
 
 # Orchestrator
-SIGNAL_PORT="$SIGNAL_PORT" node "$SHARED_ROOT/orchestrator.js" \
+SIGNAL_PORT="$SIGNAL_PORT" node "$ORCHESTRATOR_SCRIPT" \
   > "$RECORD_DIR/orchestrator.log" 2>&1 &
 ORCH_PID=$!
 sleep 0.8
 
 # Token server (uses TOKEN_SERVER_PORT env)
-TOKEN_SERVER_PORT="$TOKEN_PORT" node "$SHARED_ROOT/role_b/openai_token_server.js" \
+TOKEN_SERVER_PORT="$TOKEN_PORT" node "$ACTIVE_TOKEN_SERVER_SCRIPT" \
   > "$RECORD_DIR/token_server.log" 2>&1 &
 TOK_PID=$!
 sleep 0.5
@@ -365,7 +324,6 @@ node "$CLIP_EVAL_ROOT/role_a/clipPlayer_adapter.js" \
   --voice alloy --vadMode slow \
   --decisionTree "$TREE_FILE" \
   --taskConfig "$TASK_FILE" \
-  --profile "$CLIP_PLAYER_PROFILE" \
   ${NOISE_DIR:+--noiseDir "$NOISE_DIR"} \
   ${TASK_OVERRIDE_ARGS[@]+"${TASK_OVERRIDE_ARGS[@]}"} \
   > "$RECORD_DIR/adapter_A.log" 2>&1 &
@@ -413,7 +371,17 @@ fi
 
 # Trigger orchestrator mixdown then kill the rest
 kill -SIGINT "$ORCH_PID" 2>/dev/null || true
-sleep 1
+# WAV headers and combined.wav are finalized asynchronously. Wait for the
+# bridge instead of racing scoring/metrics against a fixed sleep.
+for _ in {1..80}; do
+  if ! kill -0 "$ORCH_PID" 2>/dev/null; then break; fi
+  sleep 0.1
+done
+if kill -0 "$ORCH_PID" 2>/dev/null; then
+  echo "[run_order_up] audio bridge did not exit within 8s; forcing shutdown" >&2
+  kill -KILL "$ORCH_PID" 2>/dev/null || true
+fi
+wait "$ORCH_PID" 2>/dev/null || true
 kill "$A_PID" "$B_PID" "$TOK_PID" "${WRITER_PID:-}" 2>/dev/null || true
 # Also kill any descendants of the writer (the inner sleep).
 [ -n "${WRITER_PID:-}" ] && pkill -KILL -P "$WRITER_PID" 2>/dev/null || true
@@ -431,52 +399,21 @@ python3 "$SCORER" "$TASK_FILE" "$RECORD_DIR"
 # VAD on the B-audio it receives — see [ClipPlayer] interrupt_flag log
 # lines.
 
-# Post-eval behavioral metrics: per-turn response latency + duration,
-# response rate, interrupt-vs-clip-properties analysis. Writes
-# `eval_metrics.json` next to score.json. Non-fatal on failure.
-# Set SKIP_POST_EVAL=1 to skip on batched re-runs that only need the
-# cart score.
+# Post-eval: behavioural metrics, every cart-error audit, and turn-taking,
+# then one consolidated report of the cart score and each audit's outcome.
+# Run in-process by order_up_eval_report.py rather than as a bash loop over
+# separate `-m` subprocesses — audit ORDER is load-bearing (preemptive_tool
+# promotes extra-item -> wrong-item, and missing_item_root_cause must add
+# `missing-item-not-detected` before missing_item_intent classifies), so it
+# belongs in one place that can be read and tested.
+# Set SKIP_POST_EVAL=1 to skip on batched re-runs that only need the score.
 if [[ "${SKIP_POST_EVAL:-0}" == "1" ]]; then
   echo "[run_order_up] SKIP_POST_EVAL=1 → skipping eval_metrics + audits"
 else
-  PYRUN=(uv run python)
   (cd "$REPO_ROOT" && PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
-    "${PYRUN[@]}" -m clip_eval.scoring.eval_metrics "$RECORD_DIR") \
-    || echo "[run_order_up] eval_metrics failed (non-fatal)"
-
-  # Tag-driven audits — each script self-guards on its trigger_tag and
-  # no-ops when the relevant cart-diff tag isn't on score.json. Order
-  # matters because:
-  #   1. preemptive_tool_audit promotes extra-item → wrong-item via the
-  #      silence check; later audits read the updated tag set.
-  #   2. wrong_option_audit reads the wrong-option-or-variant pairs the
-  #      scorer surfaced (no dependency on #1 but cheap to keep close).
-  #   3. missing_item_root_cause runs clipplayer_timeout_audit via
-  #      --auto and adds the `missing-item-not-detected` sub-tag; it
-  #      MUST land before #4 so the intent audit can read that tag
-  #      when classifying.
-  #   4. missing_item_intent_audit classifies the remaining missing
-  #      items (premature_submit / compound_line / clarify_abandoned /
-  #      other) for dashboard breakdown rollup.
-  for audit in \
-    preemptive_tool_audit \
-    wrong_option_audit \
-    missing_item_root_cause \
-    missing_item_intent_audit \
-    off_policy_audit; do
-    extra_args=()
-    [[ "$audit" == "missing_item_root_cause" ]] && extra_args=(--auto)
-    (cd "$REPO_ROOT" && PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
-      "${PYRUN[@]}" -m "clip_eval.scoring.cart_error_audit.$audit" "$RECORD_DIR" "${extra_args[@]+"${extra_args[@]}"}") \
-      || echo "[run_order_up] $audit failed (non-fatal)"
-  done
-
-  # Deterministic turn-taking metrics (interruption rate + no-response
-  # by clip length). Writes `turn_taking.json` next to score.json. No
-  # LLM, no tag-gating — always runs.
-  (cd "$REPO_ROOT" && PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
-    "${PYRUN[@]}" -m clip_eval.scoring.turn_taking_analysis "$RECORD_DIR") \
-    || echo "[run_order_up] turn_taking_analysis failed (non-fatal)"
+    "$REPO_ROOT/.venv/bin/python" "$SCRIPT_DIR/../scoring/order_up_eval_report.py" \
+      "$RECORD_DIR") \
+    || echo "[run_order_up] post-eval report failed (non-fatal)"
 fi
 
 echo "[run_order_up] done. record_dir=$RECORD_DIR"

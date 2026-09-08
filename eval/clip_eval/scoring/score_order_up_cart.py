@@ -1,3 +1,17 @@
+# Copyright 2026 DoorDash, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Compare an examinee's `final_cart.json` to the task's `expected_cart` and
 emit a `score.json` in the shape the existing v2 `scoring/score.py` reads.
 
@@ -18,7 +32,7 @@ Forgiveness rules (applied on top of the strict comparison above):
     `missing_answer_credit`. The "no subsequent inject_start" guard is
     what distinguishes a genuinely unanswerable agent question from a
     transient mismatch where the customer eventually does respond
-    (a queued corr fires, a fallback resp/opt is picked, etc.) — in the
+    (a queued corr fires, a fallback opt is picked, etc.) — in the
     latter case the customer adapter recovered, so the agent is on the
     hook for cart-adding the eventual response.
   - Early-submit consolidation: when the agent submitted before every
@@ -201,7 +215,7 @@ def compute_forgiveness(
     # A missing_answer event awards credit only if NO later inject_start fires
     # for the same (stage, item) before submit. The router uses missing_answer
     # to mark "the agent's question is unanswerable with our available clips";
-    # but if the conversation continues and a corr/resp/opt/fallback eventually
+    # but if the conversation continues and a corr/opt/fallback eventually
     # plays for that same item, the customer adapter did get to respond, so the
     # forgiveness is no longer warranted — strip the credit instead.
     pending_ma: set[tuple[int, int]] = set()

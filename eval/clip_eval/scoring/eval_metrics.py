@@ -1,3 +1,17 @@
+# Copyright 2026 DoorDash, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Per-run behavioral metrics for one Order Up eval.
 
 Reads an eval's record_dir (the directory containing adapter_A.log,
@@ -20,7 +34,7 @@ Aggregate buckets:
                                (natural mid-clip yield point)
   - by_long_intra_clip_pause   clips with ≥0.5s gap between customer
                                sub-spans (natural mid-clip yield)
-  - by_clip_role               main / resp / corr / opt
+  - by_clip_role               main / corr / opt
 
 Run:
     python -m clip_eval.scoring.eval_metrics <record_dir>
@@ -276,9 +290,23 @@ def _clip_props(clip: dict | None) -> dict:
     muted = clip.get("muted_intervals") or []
     spans = clip.get("customer_spans") or []
     # Largest gap between consecutive customer sub-spans within this clip.
+    #
+    # Span times can be legitimately absent: a clip whose recorded window
+    # disagrees with its rendered audio has no reliable origin to measure
+    # from, so the published dataset carries the span (label, text, items)
+    # with null times and `timing_unreliable` set. Such a pair contributes no
+    # measurable gap and is skipped — the spans still count toward
+    # `n_customer_spans`.
+    #
+    # `.get(key, 0)` does not help here: the default applies only when the key
+    # is missing, not when it is present and null, so float() used to raise
+    # TypeError and lose the whole metrics file for the run.
     max_gap = 0.0
     for i in range(len(spans) - 1):
-        gap = float(spans[i + 1].get("t_start", 0)) - float(spans[i].get("t_end", 0))
+        end, start = spans[i].get("t_end"), spans[i + 1].get("t_start")
+        if end is None or start is None:
+            continue
+        gap = float(start) - float(end)
         if gap > max_gap:
             max_gap = gap
     return {
@@ -341,13 +369,16 @@ def compute_per_clip(
         inject_t = round(inj["wall"] - anchor_wall, 3)
         synthetic = _is_synthetic_clip(clip_id)
         clip = clips_by_id.get(clip_id)
-        if clip is not None:
-            clip_dur = round(
-                float(clip.get("audio_end", 0)) - float(clip.get("audio_start", 0)),
-                3,
-            )
+        # Same reason as the span gaps above: treat a null bound as unknown
+        # rather than as zero. `.get(key, 0)` only defaults a *missing* key,
+        # so a present-but-null bound would otherwise raise and take the
+        # whole metrics file with it.
+        start = clip.get("audio_start") if clip is not None else None
+        end = clip.get("audio_end") if clip is not None else None
+        if start is not None and end is not None:
+            clip_dur = round(float(end) - float(start), 3)
         else:
-            clip_dur = None  # unknown duration for synthetic clips
+            clip_dur = None  # synthetic clip, or bounds not published
         clip_ends_t = (
             round(inject_t + clip_dur, 3) if clip_dur is not None else None
         )
@@ -494,7 +525,7 @@ def compute_aggregates(per_clip: list[dict]) -> dict:
         },
         "by_clip_role": {},
     }
-    for role in ("main", "resp", "corr", "opt"):
+    for role in ("main", "corr", "opt"):
         buckets["by_clip_role"][role] = _bucket_stats(
             [r for r in real if r["clip_props"]["clip_role"] == role]
         )

@@ -1,14 +1,35 @@
 #!/bin/bash
+# Copyright 2026 DoorDash, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Run a set of Order Up tasks against a Role B model, with optional
 # concurrency.
 #
 # Usage:
 #   run_order_up_dataset.sh [jobs_file] \
-#     [--role-b openai|gemini|ultravox|grok|cascaded] \
+#     [--role-b openai|openai-native|openai-fdb|gemini|ultravox|grok|cascaded] \
 #     [--max-concurrency N] \
-#     [--clip-player-profile <name>] \
 #     [--log-dir <path>] \
-#     [--duration <seconds>]
+#     [--dry-run] \
+#     [--offline]
+#
+# --dry-run: resolve and print the task list (with count), then exit
+# without running anything.
+#
+# --offline: restrict the default task-list resolution to the local
+# artifact cache (skip GCS existence checks) and forward --offline to
+# run_order_up_eval.sh for each task.
 #
 # Task list source:
 #   - If a positional <jobs_file> is provided, read task_ids from it
@@ -16,9 +37,15 @@
 #   - Otherwise default to the V1 benchmark working set, read from
 #     $BENCH_MD (defaults to `<repo>/eval/V1_BENCHMARK_SET.md`, adjacent
 #     to this eval tree). Every row in that file is already the working
-#     set — no status filtering, no profile column. Filters to per-stage
-#     tids that are (a) evaluable (have a usable decision tree) and (b)
-#     have a complex task config built.
+#     set — no status filtering, no profile column. Per-stage rows are
+#     translated to published task ids via task_id_map() when one is
+#     available, and emitted unchanged otherwise.
+#
+#     Set PREFILTER=1 to additionally require a usable decision tree and a
+#     complex task config. That is opt-in on purpose: the checks go through
+#     the artifact store (local cache OR GCS), which a fresh checkout
+#     cannot answer — hydration is per-task inside the runner — so
+#     prefiltering there would drop every task. See resolve_v1_task_ids.py.
 #
 # Concurrency:
 #   --max-concurrency N (default 1 = sequential). Each eval self-allocates
@@ -28,13 +55,6 @@
 # Role B model:
 #   --role-b X forwards to run_order_up_eval.sh. If unset, the wrapper
 #   falls back to $ROLE_B from env (default openai).
-#
-# clipPlayer profile:
-#   Auto-detected per-tid by run_order_up_eval.sh from the customer_clips
-#   manifest (compound-main → restate-on-partial-ack, else default).
-#   Override globally with --clip-player-profile <name>. No per-row
-#   manifest tag is honored anymore; rebuild artifacts if you need
-#   different behavior.
 #
 # Per-task logs at $LOG_DIR/<tid>.log (default /tmp/order_up_dataset/).
 # Status aggregate at $LOG_DIR/STATUS.txt with one OK/FAIL line per task.
@@ -49,9 +69,9 @@ RUNNER="$SCRIPT_DIR/run_order_up_eval.sh"
 JOBS_FILE=""
 ROLE_B_ARG=""
 MAX_CONCURRENCY=1
-CLIP_PLAYER_PROFILE_OVERRIDE=""
 LOG_DIR="/tmp/order_up_dataset"
-DURATION=""
+DRY_RUN=0
+OFFLINE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -59,9 +79,9 @@ while [[ $# -gt 0 ]]; do
     --role-b=*) ROLE_B_ARG="${1#*=}"; shift ;;
     --max-concurrency|-j) MAX_CONCURRENCY="$2"; shift 2 ;;
     --max-concurrency=*) MAX_CONCURRENCY="${1#*=}"; shift ;;
-    --clip-player-profile) CLIP_PLAYER_PROFILE_OVERRIDE="$2"; shift 2 ;;
     --log-dir) LOG_DIR="$2"; shift 2 ;;
-    --duration) DURATION="$2"; shift 2 ;;
+    --dry-run) DRY_RUN=1; shift ;;
+    --offline) OFFLINE=1; shift ;;
     -h|--help)
       grep -E '^# ' "$0" | sed 's/^# //'; exit 0 ;;
     --*) echo "unexpected flag: $1" >&2; exit 2 ;;
@@ -86,8 +106,10 @@ if [[ -n "$JOBS_FILE" ]]; then
   grep -vE '^\s*(#|$)' "$JOBS_FILE" > "$TASK_IDS_FILE"
   TASK_SOURCE="$JOBS_FILE"
 else
-  # Default: V1 benchmark working set, filtered by:
-  #   per-stage  ∩  evaluable (usable tree)  ∩  has complex task config
+  # Default: V1 benchmark working set — every per-stage row, translated to
+  # published task ids when a task_id_map is available. Set PREFILTER=1 to
+  # additionally require a usable tree + complex task config (internal runs
+  # only; see resolve_v1_task_ids.py).
   # The manifest lives adjacent to this eval tree (eval/V1_BENCHMARK_SET.md);
   # override with $BENCH_MD.
   BENCH_MD="${BENCH_MD:-$SCRIPT_DIR/../../V1_BENCHMARK_SET.md}"
@@ -95,46 +117,19 @@ else
     echo "Missing $BENCH_MD — needed for the default benchmark task list" >&2
     exit 1
   fi
-  python3 - "$BENCH_MD" "$ARTIFACTS_PATH" > "$TASK_IDS_FILE" <<'PY'
-import json, re, sys
-from pathlib import Path
-bench_md = Path(sys.argv[1])
-artifacts = Path(sys.argv[2])
-
-# Every row in the clean manifest is a working-set tid — no status
-# flags to strip, no profile column to parse. Ordering follows file
-# order.
-tids: list[str] = []
-seen: set[str] = set()
-for line in bench_md.read_text().splitlines():
-    m = re.match(r'^\| `(order_up\.[^`]+)` \|', line)
-    if not m: continue
-    tid = m.group(1)
-    if tid in seen: continue
-    seen.add(tid)
-    tids.append(tid)
-
-def unevaluable(tid: str) -> bool:
-    """Structural unevaluable check — broken decision tree. The clean
-    manifest should never contain unevaluable tids in the first place;
-    this is a defense-in-depth guard for edit accidents."""
-    tree_p = artifacts / 'decision_trees' / f'{tid}.json'
-    if not tree_p.exists(): return True
-    try: t = json.loads(tree_p.read_text())
-    except Exception: return True
-    init = t.get('initial_node')
-    if not init: return True
-    if init not in (t.get('nodes') or {}): return True
-    if not init.endswith('_main') and '_main' not in init: return True
-    return False
-
-for tid in tids:
-    if not re.search(r'\.s\d+$', tid): continue                                      # per-stage only
-    if unevaluable(tid): continue                                                    # broken tree
-    if not (artifacts / 'order_up_tasks' / f'{tid}.complex.task.json').exists():     # no complex config
-        continue
-    print(tid)
-PY
+  # Task-list resolution lives in resolve_v1_task_ids.py, not inline here:
+  # it translates the manifest's internal ids to published ids via
+  # task_id_map() (emitting them unchanged when no map exists), and only
+  # prefilters on artifact availability when asked. Prefiltering is opt-in
+  # because a fresh checkout has nothing on disk — hydration is per-task
+  # inside the runner — so filtering on presence would drop every task and
+  # the run would die with "No tasks to run".
+  RESOLVE_FLAGS=()
+  [[ "$OFFLINE" == "1" ]] && RESOLVE_FLAGS+=(--offline)
+  [[ "${PREFILTER:-0}" == "1" ]] && RESOLVE_FLAGS+=(--prefilter)
+  PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+    "$REPO_ROOT/.venv/bin/python" "$SCRIPT_DIR/resolve_v1_task_ids.py" \
+      "$BENCH_MD" "$ARTIFACTS_PATH" "${RESOLVE_FLAGS[@]+"${RESOLVE_FLAGS[@]}"}" > "$TASK_IDS_FILE"
   TASK_SOURCE="$BENCH_MD (V1 working set)"
 fi
 
@@ -143,65 +138,58 @@ if (( N_TASKS == 0 )); then
   echo "No tasks to run (source: $TASK_SOURCE)" >&2; exit 1
 fi
 
+if [[ "$DRY_RUN" == "1" ]]; then
+  echo "[run_order_up_dataset] DRY RUN — $N_TASKS tasks (source: $TASK_SOURCE)"
+  cat "$TASK_IDS_FILE"
+  exit 0
+fi
+
 mkdir -p "$LOG_DIR"
 STATUS="$LOG_DIR/STATUS.txt"
 : > "$STATUS"
 
 echo "[run_order_up_dataset] $N_TASKS tasks (source: $TASK_SOURCE)"
 echo "[run_order_up_dataset]   role_b=${ROLE_B_ARG:-${ROLE_B:-openai}} max_concurrency=$MAX_CONCURRENCY"
-if [[ -n "$CLIP_PLAYER_PROFILE_OVERRIDE" ]]; then
-  echo "[run_order_up_dataset]   profile=${CLIP_PLAYER_PROFILE_OVERRIDE} (global override)"
-else
-  echo "[run_order_up_dataset]   profile auto-detected per tid from the customer_clips manifest"
-fi
-if [[ -n "$DURATION" ]]; then
-  echo "[run_order_up_dataset]   duration=${DURATION}s (override)"
-else
-  echo "[run_order_up_dataset]   duration auto (source × 4)"
-fi
 echo "[run_order_up_dataset]   logs → $LOG_DIR/<tid>.log"
 echo "[run_order_up_dataset]   status → $STATUS"
 echo
 
+# Hydrate the whole sweep in one pass before fanning out. Each worker would
+# otherwise pull its own task inside order_up_eval_setup.py via
+# cache_pull_stage(tid), which streams the dataset and linear-scans for that
+# single id (~75s/task cold), so a full sweep re-downloads the same shards
+# once per task. After this the per-worker calls hit a warm cache and return
+# immediately. Non-fatal: if it fails, the workers still hydrate individually.
+if [[ "$OFFLINE" != "1" ]]; then
+  if PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+      "$REPO_ROOT/.venv/bin/python" \
+      "$SCRIPT_DIR/prehydrate_tasks.py" "$TASK_IDS_FILE"; then
+    echo
+  else
+    echo "[run_order_up_dataset] warn: pre-hydration failed; each worker will" \
+         "hydrate its own task (much slower)" >&2
+  fi
+fi
+
 # Export everything the child run_one needs.
 export RUNNER LOG_DIR STATUS
-export ROLE_B_ARG CLIP_PLAYER_PROFILE_OVERRIDE DURATION
+export ROLE_B_ARG OFFLINE
 
 run_one() {
   local tid="$1"
-  local profile=""
-  # Profile precedence:
-  #  1. --clip-player-profile CLI flag (global override) → pin per tid
-  #  2. otherwise pass NOTHING and let run_order_up_eval.sh's manifest
-  #     auto-detect (compound-main → restate-on-partial-ack, else default).
-  if [[ -n "$CLIP_PLAYER_PROFILE_OVERRIDE" ]]; then
-    profile="$CLIP_PLAYER_PROFILE_OVERRIDE"
-  fi
   local log="$LOG_DIR/$tid.log"
   local args=()
   [[ -n "$ROLE_B_ARG" ]] && args+=("--role-b" "$ROLE_B_ARG")
-  [[ -n "$profile" ]] && args+=("--clip-player-profile" "$profile")
-  local t0 t1 dur score role_b_disp
+  [[ "$OFFLINE" == "1" ]] && args+=("--offline")
+  local t0 t1 dur role_b_disp
   role_b_disp="${ROLE_B_ARG:-${ROLE_B:-openai}}"
   t0=$(date +%s)
-  if [[ -n "$DURATION" ]]; then
-    if "$RUNNER" "$tid" "$DURATION" "${args[@]}" > "$log" 2>&1; then
-      t1=$(date +%s); dur=$((t1 - t0))
-      score=$(grep -aoE 'task_score=[0-9.]+' "$log" | tail -1 | cut -d= -f2 || true)
-      echo "OK    $(date +%H:%M:%S)  ${dur}s  $role_b_disp/${profile:-auto}  $tid  score=${score:-?}" >> "$STATUS"
-    else
-      t1=$(date +%s); dur=$((t1 - t0))
-      echo "FAIL  $(date +%H:%M:%S)  ${dur}s  $role_b_disp/${profile:-auto}  $tid" >> "$STATUS"
-    fi
+  if "$RUNNER" "$tid" "${args[@]+"${args[@]}"}" > "$log" 2>&1; then
+    t1=$(date +%s); dur=$((t1 - t0))
+    echo "OK    $(date +%H:%M:%S)  ${dur}s  $role_b_disp  $tid" >> "$STATUS"
   else
-    if "$RUNNER" "$tid" "${args[@]}" > "$log" 2>&1; then
-      t1=$(date +%s); dur=$((t1 - t0))
-      score=$(grep -aoE 'task_score=[0-9.]+' "$log" | tail -1 | cut -d= -f2 || true)
-      echo "OK    $(date +%H:%M:%S)  ${dur}s  $role_b_disp/${profile:-auto}  $tid  score=${score:-?}" >> "$STATUS"
-    else
-      t1=$(date +%s); dur=$((t1 - t0))
-      echo "FAIL  $(date +%H:%M:%S)  ${dur}s  $role_b_disp/${profile:-auto}  $tid" >> "$STATUS"
-    fi
+    t1=$(date +%s); dur=$((t1 - t0))
+    echo "FAIL  $(date +%H:%M:%S)  ${dur}s  $role_b_disp  $tid" >> "$STATUS"
   fi
 }
 export -f run_one

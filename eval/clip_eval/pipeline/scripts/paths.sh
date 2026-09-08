@@ -1,3 +1,17 @@
+# Copyright 2026 DoorDash, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Single source of truth for the eval's directory layout.
 #
 # `source` this file from any shell script that needs to locate
@@ -10,6 +24,9 @@
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 CLIP_EVAL_ROOT="$REPO_ROOT/clip_eval"
 SHARED_ROOT="$CLIP_EVAL_ROOT/_vendor/shared"
+RUNTIME_ROOT="$CLIP_EVAL_ROOT/runtime"
+AUDIO_BRIDGE="$RUNTIME_ROOT/audio_bridge.js"
+TOKEN_SERVER_SCRIPT="$RUNTIME_ROOT/openai_token_server.js"
 # Artifact dir can be overridden via env var — useful when the artifacts
 # ship separately from the code. Defaults to artifacts/ next to the
 # project root.

@@ -1,0 +1,27 @@
+Order-Up-Bench
+Copyright 2026 DoorDash, Inc.
+
+This product includes generated site assets from the Cayman theme for Jekyll.
+
+  Project: Jekyll Theme Cayman
+  Version: 0.2.0
+  Source: https://github.com/pages-themes/cayman/tree/v0.2.0
+  Authors: Jason Long and GitHub, Inc.
+  License: Creative Commons Zero v1.0 Universal (CC0-1.0)
+  License: https://creativecommons.org/publicdomain/zero/1.0/
+  Bundled at:
+    docs/assets/css/style.css
+    docs/assets/css/style.css.map
+    docs/index.html
+
+The generated Cayman stylesheet includes normalize.css.
+
+  Project: normalize.css
+  Version: 3.0.2
+  Source: https://github.com/necolas/normalize.css/tree/3.0.2
+  Copyright: Nicolas Gallagher and Jonathan Neal
+  License: MIT
+  License: https://github.com/necolas/normalize.css/blob/3.0.2/LICENSE.md
+  Bundled at:
+    docs/assets/css/style.css
+    docs/assets/css/style.css.map

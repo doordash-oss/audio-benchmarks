@@ -1,68 +1,46 @@
-# Pipecat Role B adapter (experimental)
+# Pipecat Role B adapter
 
-A Python, Pipecat-based implementation of the swappable **Role B** (agent-under-test)
-contract for the Order Up benchmark — the path to evaluating S2S models beyond the
-native OpenAI GPT-realtime adapter. See `PLAN.md` (here) for the full design and the
-contract at `clip_eval/docs/contracts/30_role_b_protocol.md`.
+This is the benchmark's provider-neutral implementation of Role B, the agent
+under test. It connects to the local audio bridge over WebRTC, runs the selected
+speech provider through Pipecat, executes cart tools through the local tool
+server, and emits normalized transcript/lifecycle events.
 
-Status: **functional, multi-provider** — connects to the orchestrator over WebRTC, runs the
-selected model backend via Pipecat, takes the order via cart tools, and emits `agent_stop` +
-transcripts. Providers (`ROLE_B_PROVIDER`):
+Supported provider names are `openai`, `gemini_live`, `ultravox`,
+`grok_realtime`, and `cascaded`. OpenAI is the default used by
+`run_order_up_eval.sh`.
 
-| Provider | Backend | Notes |
-|---|---|---|
-| `openai` | OpenAI Realtime (native S2S) | default; broadly cart-score parity with the native Node adapter (PLAN.md §M7) |
-| `gemini_live` | Gemini Live (native S2S) | M8 |
-| `grok_realtime` / `grok` | xAI Grok Voice Agent (native S2S) | uses Pipecat `GrokRealtimeLLMService`; requires `XAI_API_KEY` |
-| `cascaded` | Silero VAD + OpenAI Whisper STT + gpt-4o LLM + OpenAI TTS | non-realtime **baseline** for comparison; mirrors FDB-v3's cascaded agent |
+## Dependencies
 
-Known gaps: `inject` is accepted-but-not-wired (Order Up never sends it); turn-taking parity
-validated single-run-per-task (N-run rigor is a TODO).
-
-## Setup
-
-Requires Python ≥3.12 (per the repo `pyproject.toml`; Pipecat 1.x). Dependencies live in the repo's `pyproject.toml`
-(single source of truth). The benchmark scripts source `scripts/_env.sh`, which points uv at
-the project venv (`v2/.venv`) and `uv run` auto-syncs it — so running through
-`scripts/eval.sh` needs no manual setup. To pre-sync the venv yourself:
+Use Python 3.11 or newer and install [requirements.txt](requirements.txt) into
+the eval virtual environment:
 
 ```bash
-UV_PROJECT_ENVIRONMENT=v2/.venv uv sync
+cd eval
+uv venv --python 3.11 .venv
+uv pip install --python .venv/bin/python -r clip_eval/role_b/pipecat/requirements.txt
 ```
 
-(The historical per-adapter `shared/role_b/pipecat/.venv` is no longer used — its deps are
-folded into the project venv. If the directory still exists locally it's safe to delete.)
+## Run through the benchmark
 
-## Run via the benchmark runner
-
-The runner (`clip_eval/runtime/run_order_up_eval.sh`) launches Role B from `$ROLE_B_CMD`,
-defaulting to the native Node adapter. To use this one:
+From `eval/`:
 
 ```bash
-export ROLE_B_CMD="uv run python $PWD/shared/role_b/pipecat/pipecat_role_b_adapter.py"
-export ROLE_B_PROVIDER=cascaded      # or: openai | gemini_live | grok_realtime
-bash scripts/eval.sh order_up.Corner_Bistro.546FF09D.g0
+OPENAI_API_KEY=... \
+  bash clip_eval/runtime/run_order_up_eval.sh <task_id> --role-b openai
 ```
 
-Optional overrides:
-- `ROLE_B_INTERRUPTIBLE=true|false` — overrides the interruption default (derives from the VAD
-  profile; see PLAN.md §M7 for why ON matches native's *behavior* on our path).
-- `grok_realtime` only: `XAI_API_KEY` (or `GROK_API_KEY`) is required.
-  `GROK_REALTIME_MODEL` / `XAI_REALTIME_MODEL` override the default
-  `grok-voice-think-fast-1.0`; `GROK_VOICE` / `XAI_VOICE` can be one of
-  `Ara`, `Rex`, `Sal`, `Eve`, or `Leo`. The runner shortcut is:
-  `bash scripts/eval.sh <task_id> --role-b grok`.
-- `cascaded` only: `CASCADED_STT_MODEL` / `CASCADED_LLM_MODEL` / `CASCADED_TTS_MODEL` /
-  `CASCADED_TTS_VOICE` swap individual stages (defaults `whisper-1` / `gpt-4o` / `tts-1`; TTS
-  voice falls back to the runner's `--voice` (`shimmer`) and then to `nova` standalone).
-  `ROLE_B_MODEL`/`--model` is realtime-oriented and ignored for cascaded — use
-  `CASCADED_LLM_MODEL` to change the reasoning model. `ROLE_B_INTERRUPTIBLE=true|false`
-  controls whether in-flight tool calls survive a customer interruption.
+Use `--role-b gemini`, `--role-b ultravox`, `--role-b grok`, or
+`--role-b cascaded` for the other runner presets. Each provider requires its
+documented API key.
 
-## Standalone smoke (no orchestrator/model)
+## Transport-only test
+
+The handshake test starts the repository-owned audio bridge and connects two
+Python WebRTC peers without contacting a model provider:
 
 ```bash
-printf '%s\n' '{"type":"configure_tools","tools":[{"name":"add_to_cart"}],"serverUrl":"http://x"}' \
-  | uv run python pipecat_role_b_adapter.py --role B --signalUrl ws://localhost:9999/signal --systemPrompt hi
+cd eval/clip_eval/role_b/pipecat
+../../../.venv/bin/python selftest_handshake.py
 ```
-Expect: logs the parsed tools, then exits cleanly on stdin EOF.
+
+See [PLAN.md](PLAN.md) for the process, signaling, and verification contracts.

@@ -6,9 +6,11 @@ output dirs.
 
 ## Layout
 
-- `orchestrator.js` — WebRTC signalling server. Brokers SDP offer/answer
+- `audio_bridge.js` — DoorDash-owned WebRTC signalling and audio bridge. Brokers SDP offer/answer
   between Role A and Role B, mixes their audio, records `A.wav` /
   `B.wav` / `combined.wav` into `RECORD_DIR`.
+- `openai_token_server.js` — local credential broker used by the Role A
+  OpenAI Realtime routing session.
 - `domains/order_up/`
   - `order_up_tool_server.js` — Order Up cart tool handlers (`add_item`,
     `remove_item`, `submit_cart`, `get_cart`).
@@ -28,6 +30,17 @@ OPENAI_REALTIME_MODEL=gpt-realtime-2 \
 ```
 
 Writes everything into `artifacts/outputs/OrderUp/<task_id>/<run_ts>/`.
+
+OpenAI Realtime has three Role B implementations:
+
+- `--role-b openai` (default) uses the provider-neutral Pipecat adapter.
+- `--role-b openai-native` uses the direct OpenAI Realtime WebSocket
+  adapter. It keeps the same local bridge, task inputs, tools, recordings,
+  and scorer while removing Pipecat from Role B, making it useful for
+  measuring framework overhead.
+- `--role-b openai-fdb` retains the Full-Duplex-Bench-derived WebRTC
+  orchestrator, token server, and Role B adapter for historical parity
+  comparisons. Its upstream license terms remain applicable.
 
 ## Contracts
 

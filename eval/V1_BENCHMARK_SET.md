@@ -1,15 +1,15 @@
 # V1 Benchmark Set
 
-Working set of Order-Up per-stage benchmark task_ids (254 stages).
+Working set of Order-Up per-stage benchmark task_ids (248 stages).
 
 The audio-benchmarks dataset runner (`clip_eval/runtime/run_order_up_dataset.sh`)
-defaults to this set. Each row is a per-stage task_id; the clipPlayer
-profile is auto-detected from the customer_clips manifest at eval time
-(see `clip_eval/runtime/infer_clip_player_profile.py`), so no per-row
-profile tag is needed.
+defaults to this set. Each row is a per-stage task_id and nothing else —
+no status flags, no profile column. (clipPlayer profiles were removed once
+the `generic` acknowledgement sentinel made restate-on-partial-ack
+redundant; there is one clipPlayer prompt for every stage.)
 
 Batch narrative, per-user attributions, and rollout status flags for
-stages that made it in / were removed are preserved in the Full-Duplex-Bench
+stages that made it in / were removed are preserved in the internal source
 repo at `v2/artifacts/V1_BENCHMARK_SET.history.md` — that log is the
 audit trail for how the set evolved, not a runtime input.
 
@@ -172,9 +172,6 @@ audit trail for how the set evolved, not a runtime input.
 | `order_up.Olive_Vine.34324F5A.g2.s1` |
 | `order_up.Olive_Vine.34324F5A.g2.s2` |
 | `order_up.Olive_Vine.55BACE8D.g0.s1` |
-| `order_up.Olive_Vine.9CF6891D.g0.s0` |
-| `order_up.Olive_Vine.9CF6891D.g0.s1` |
-| `order_up.Olive_Vine.9CF6891D.g0.s2` |
 | `order_up.Olive_Vine.A1DA17FF.g1.s0` |
 | `order_up.Olive_Vine.A1DA17FF.g1.s2` |
 | `order_up.Olive_Vine.BE5BDFA1.g4.s1` |
@@ -213,9 +210,6 @@ audit trail for how the set evolved, not a runtime input.
 | `order_up.Sunrise_Cafe.4BFD2A0D.g2.s1` |
 | `order_up.Sunrise_Cafe.58C77CE6.g1.s0` |
 | `order_up.Sunrise_Cafe.58C77CE6.g1.s2` |
-| `order_up.Sunrise_Cafe.9CF6891D.g4.s0` |
-| `order_up.Sunrise_Cafe.9CF6891D.g4.s1` |
-| `order_up.Sunrise_Cafe.9CF6891D.g4.s2` |
 | `order_up.Sunrise_Cafe.C9E948FC.g0.s0` |
 | `order_up.Sunrise_Cafe.C9E948FC.g0.s1` |
 | `order_up.Sunrise_Cafe.C9E948FC.g0.s2` |

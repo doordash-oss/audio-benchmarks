@@ -1,4 +1,20 @@
 #!/usr/bin/env node
+/*
+ * Copyright 2026 DoorDash, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 /**
  * clipPlayer_adapter.js (Role A — Clip Player)
  *
@@ -7,7 +23,7 @@
  *   - It calls select_clip(node_id) to choose which pre-recorded clip to play, or
  *   - It calls select_fallback() when the examinee's response is off-script.
  *
- * Clips are injected directly into downlinkBuf (same pacer as gptRealtime_adapter).
+ * Clips are injected directly into a real-time PCM output buffer.
  * tool_choice: 'required' ensures the model NEVER generates audio.
  */
 
@@ -56,8 +72,6 @@ const argv = yargs(hideBin(process.argv))
                               describe: 'Fallback timeout: if the examinee has not started speaking within this many ms after the session opens, fire the initial clip anyway. Reset when speech_started arrives, so the actual wait is unbounded once the agent begins their greeting.' })
   .option('toolServerUrl',  { type: 'string', default: '',
                               describe: 'Tool server URL (http://host:port). When set, used for the customer-side auto-submit fallback fired only when missing_answer is picked at end-of-order (no remaining clips to play and the adapter would otherwise sit silent).' })
-  .option('profile',      { type: 'string', default: 'default',
-                            describe: 'Customer routing profile name. Resolves to clipPlayer_profiles/<name>.md and is appended to the base system prompt via {{PROFILE_INSTRUCTIONS}}.' })
   .option('taskOverrides', { type: 'string', default: '',
                              describe: 'Optional per-task override JSON sidecar (same file the complex builder consumes). Read for clip_router_hints: a map from clip_id to a guidance string appended to that clip\'s description in valid_choices, used for stage-specific routing cues the generic kind-based description can\'t derive (e.g. customer mispronunciations the agent is expected to surface).' })
   .option('taskConfig',   { type: 'string', default: '',
@@ -250,7 +264,9 @@ const PLAY_TOOL = {
       choice: {
         type: 'string',
         description: (
-          'One of: "next_item" (advance the conversation forward), "yes", "no", "fallback" ' +
+          'One of: "next_item" (advance the conversation forward), "yes", "no", ' +
+          '"only_one" (decline an ADDITIONAL unit of an item already in the cart), ' +
+          '"fallback" ' +
           '(replay last clip), "missing_answer" (agent asked a valid question OR presented an ' +
           'option set we have no matching clip for), or a specific clip_id from the last ' +
           'valid_choices list.'
@@ -274,7 +290,15 @@ const PLAY_TOOL = {
         type: 'string',
         description: (
           'Why this choice fits what you heard in the `heard` field. '
-          + 'Reference the heard content directly.'
+          + 'Reference the heard content directly. Then, in the SAME string, '
+          + 'justify your `acknowledged` list separately — name each id you '
+          + 'included and the reason it qualifies (explicitly named / '
+          + 'explicit question naming the item / implicit question / generic '
+          + 'move-on / restatement), and name each id you LEFT OUT of '
+          + '`unacknowledged` and why the agent did not acknowledge it. '
+          + 'These are two distinct decisions and a turn where they '
+          + 'disagree — closing out while items remain un-ack\'d, say — is '
+          + 'a contradiction you should catch here before it ships.'
         ),
       },
       acknowledged: {
@@ -284,12 +308,20 @@ const PLAY_TOOL = {
           '(Optional but expected every turn) Short clip ids from the '
           + 'PREVIOUS tool response\'s `unacknowledged` list that the '
           + 'agent\'s most recent utterance named, called back to, or '
-          + 'asked a follow-up question about. A bare generic ack ("got '
-          + 'it", "okay", "sure") with no item-specific words → include '
-          + 'ALL current entries in `unacknowledged`. Restatement ids '
-          + '(e.g. "i1_restatement1") also count — the adapter maps '
-          + 'them to the parent main. Omit or pass [] when the agent '
-          + 'ack\'d nothing.'
+          + 'asked a follow-up question about. Two reserved tokens, both '
+          + 'expanded by the adapter — never enumerate peer items '
+          + 'yourself. (1) ["generic"] ALONE when the agent moved on '
+          + 'without naming any item or option ("got it", "okay", '
+          + '"anything else?"). (2) ["<item>", "explicit_question_target"] '
+          + 'when the agent asked a question that EXPLICITLY named the '
+          + 'item it is about ("mustard on your burger?"): naming it '
+          + 'distinguishes it from the rest of the order, so the peers are '
+          + 'ack\'d too. An IMPLICIT reference ("mustard on that?", "mild '
+          + 'or spicy?") identifies ONE item — send that id with NO '
+          + 'sentinel, because nothing shows the agent heard the others. '
+          + 'Restatement ids (e.g. "i1_restatement1") also count — the '
+          + 'adapter maps them to the parent main. Omit or pass [] when '
+          + 'the agent ack\'d nothing.'
         ),
       },
     },
@@ -305,19 +337,11 @@ const PLAY_TOOL = {
 // Body lives in clipPlayer_system_prompt.md (loaded once at module init).
 const SYSTEM_PROMPT_PATH = path.join(__dirname, 'clipPlayer_system_prompt.md');
 const SYSTEM_PROMPT_TEMPLATE = fs.readFileSync(SYSTEM_PROMPT_PATH, 'utf8').replace(/\n+$/, '');
-const PROFILE_PATH = path.join(__dirname, 'clipPlayer_profiles', `${argv.profile}.md`);
-if (!fs.existsSync(PROFILE_PATH)) {
-  console.error(`[ClipPlayer] profile not found: ${PROFILE_PATH}`);
-  process.exit(2);
-}
-const PROFILE_INSTRUCTIONS = fs.readFileSync(PROFILE_PATH, 'utf8').replace(/\n+$/, '');
-console.log(`[ClipPlayer] profile=${argv.profile} (${PROFILE_INSTRUCTIONS ? PROFILE_INSTRUCTIONS.split('\n').length + ' lines' : 'no extra instructions'})`);
 
 function generateSystemPrompt(t) {
   const rendered = SYSTEM_PROMPT_TEMPLATE
     .replace('{{TASK_DESCRIPTION}}', t.description ?? 'undefined')
-    .replace('{{DEFAULT_ELIGIBLE_OPTIONS}}', DEFAULT_ELIGIBLE_OPTIONS_TEXT)
-    .replace('{{PROFILE_INSTRUCTIONS}}', PROFILE_INSTRUCTIONS);
+    .replace('{{DEFAULT_ELIGIBLE_OPTIONS}}', DEFAULT_ELIGIBLE_OPTIONS_TEXT);
   // Emit the exact rendered system prompt once per session config so
   // adapter_A.log carries the literal instructions the model saw. Used
   // by the router-turn debug log (see _logRouterTurn) — pair this line
@@ -416,19 +440,20 @@ async function loadNoiseClips(dir) {
         pcm.writeInt16LE(Math.round(s * 32767), i * 2);
       }
       noiseClips.push(pcm);
+      // Bind the name to its OWN buffer here, not by index after the loop.
+      // A file that fails to decode below is skipped without pushing to
+      // `noiseClips`, so index-based pairing would bind every later name to
+      // the wrong audio — silently, since only the per-file skip warns.
+      noiseByName.set(f, pcm);
       totalSec += samples.length / WIRE_SR;
     } catch (e) {
       console.warn(`[ClipPlayer] skip noise clip ${f}: ${e.message}`);
     }
   }
-  // Build a name → PCM map (in addition to the legacy `noiseClips`
-  // ordered list) so the per-clip `noise_rotation` lookup in
-  // `applyNoiseRotation()` can pull buffers by filename. The legacy
-  // ordered list is preserved as the fallback rotation when a clip
-  // has no `noise_rotation` field (manifests built before this feature).
-  for (let i = 0; i < entries.length && i < noiseClips.length; i += 1) {
-    noiseByName.set(entries[i], noiseClips[i]);
-  }
+  // `noiseByName` backs the per-clip `noise_rotation` lookup in
+  // `applyNoiseRotation()`. The legacy `noiseClips` ordered list is preserved
+  // as the fallback rotation when a clip has no `noise_rotation` field
+  // (manifests built before this feature).
   // No startup shuffle. The order each rotation visits noise files is
   // determined at BUILD TIME — `applyNoiseRotation(filenames)` swaps
   // the active sequence of PCM buffers used by `pullNoiseFrame()`.
@@ -612,6 +637,15 @@ async function doInitialTurn() {
       content: [{ type: isGA ? 'output_text' : 'text', text: initialNode.text }]
     }});
     const valid_choices = dt.computeValidChoices();
+    // Must carry the SAME ack fields as a real tool response. The initial
+    // clip is frequently the COMPOUND main, so this synthetic state is the
+    // moment two items first become ackable — and without the arrays the
+    // router has nothing to report against on its first turn. Observed on
+    // Corner_Bistro.6C3C0612.g8.s2: the router correctly declined to assert
+    // acks ("no unacknowledged list was provided in the prior tool
+    // response"), i0_main stayed outstanding for all 9 turns, and the
+    // premature-close guard replayed its sub-clip 4 times while the agent
+    // re-added the item each round.
     safeSendDC({ type: 'conversation.item.create', item: {
       type: 'message', role: 'system',
       content: [{ type: 'input_text', text: JSON.stringify({
@@ -619,6 +653,9 @@ async function doInitialTurn() {
         item_index: dt.getCurrentItem(),
         last_played: dt.shortenClipId(initialNode.id),
         last_played_text: initialNode.text || '',
+        ...dt.mainClipItemExtras(initialNode),
+        acknowledged: dt.getAckedEntries(),
+        unacknowledged: dt.getUnackedEntries(),
         valid_choices,
       }) }]
     }});
@@ -648,7 +685,7 @@ async function doInitialTurn() {
 //     the router should pick next_item / yes / no for confirmations, and
 //     fallback for "agent asked to repeat" cases.
 //   - main_X played, no sibling → consumed (omitted unless explicitly added)
-//   - Same rules apply per resp_N and opt_N
+//   - Same rules apply per opt_N
 //   - _corr clips appear once their parent has played, ONLY via next_item
 //     auto-play (not as direct router targets)
 //   - _post_revision clips appear via the fallback action, not as direct
@@ -706,8 +743,16 @@ async function _playInjectAndAck(callId, node, statusLabel, extraPayload, onComm
   // playedClips (they're abstract actions, not concrete item-flow clips)
   // and DON'T move dt.getLastPlayedClipId() (fallback should target the real
   // most-recent clip).
-  if (!node._synthetic && node.id) {
-    dt.markPlayed(node.id);
+  // `_realNodeId` lets a DERIVED node (an unack sub-clip replay built by
+  // spreading a real tree node with a mangled `id`) record the id of the
+  // tree node it came from. Marking the mangled id instead would leave
+  // getLastPlayedClipId() pointing at something not in tree.nodes, and
+  // the next unack gate's per-item fallback_clips lookup
+  // (`dt.nodes[lastNodeId]`) would miss — silently degrading the replay
+  // from "just the missed item's sub-clip" to "re-say the whole
+  // compound".
+  if (!node._synthetic && (node._realNodeId || node.id)) {
+    dt.markPlayed(node._realNodeId || node.id);
   }
   const valid_choices = dt.computeValidChoices();
   // For main clips only, surface the canonical name(s) + aliases of
@@ -735,7 +780,7 @@ async function _playInjectAndAck(callId, node, statusLabel, extraPayload, onComm
 }
 
 // For a just-played main clip, return the per-covered-item canonical
-// names + aliases plus a guidance string. Non-main clips (opt, resp,
+// names + aliases plus a guidance string. Non-main clips (opt,
 // restatement, yes/no, corr) get an empty object — the canonical-name
 // hint only makes sense at the moment the agent is being introduced to
 // a new item.
@@ -756,37 +801,17 @@ async function _handleNextItem(callId, reasoning) {
   // instead of advancing. Same failure mode as premature `thats_all`,
   // just triggered by `next_item`.
   //
-  // Prefer a per-item sub-clip of the compound main (so we don't
-  // re-say the whole compound). Fall back to substituteForPrematureClose
-  // for non-compound cases.
+  // Which clip re-surfaces the stranded item is decided in one place —
+  // dt.resurfaceUnackedItem() (restatement → per-item sub-clip → whole
+  // source clip). Don't reimplement that choice here.
   if (dt.getUnackedCount && dt.getUnackedCount() > 0) {
-    const unackedEntries = dt.getUnackedEntries ? dt.getUnackedEntries() : [];
-    const first = unackedEntries[0];
-    const lastNodeId = dt.getLastPlayedClipId();
-    const lastNode = lastNodeId ? dt.nodes[lastNodeId] : null;
-    let subNode = null;
-    if (first && lastNode && Array.isArray(lastNode.fallback_clips)) {
-      const fc = lastNode.fallback_clips.find(
-        (x) => x.item_index === first.item_index
-      ) || lastNode.fallback_clips[0];
-      if (fc) {
-        subNode = {
-          ...lastNode,
-          id: `${lastNodeId}__unack_next_item_i${fc.item_index}`,
-          clip: fc.clip,
-          text: fc.text || lastNode.text,
-        };
-      }
-    }
-    if (!subNode && dt.substituteForPrematureClose) {
-      subNode = dt.substituteForPrematureClose();
-    }
-    if (subNode) {
+    const sub = dt.resurfaceUnackedItem ? dt.resurfaceUnackedItem() : null;
+    if (sub) {
       console.log(
-        `[ClipPlayer:next_item_unack_replay] next_item → ${subNode.id} `
-        + `(unacked=${JSON.stringify(dt.getUnackedIds())}) | ${reasoning}`
+        `[ClipPlayer:next_item_unack_replay] next_item → ${sub.node.id} `
+        + `(via=${sub.source} unacked=${JSON.stringify(dt.getUnackedIds())}) | ${reasoning}`
       );
-      await _playInjectAndAck(callId, subNode, 'played_next_item_unack_replay');
+      await _playInjectAndAck(callId, sub.node, 'played_next_item_unack_replay');
       return;
     }
     console.warn(
@@ -900,21 +925,15 @@ async function _handleFallback(callId, reasoning) {
   const lastNode = dt.nodes[dt.getLastPlayedClipId()];
   let node = lastNode;
   let fbSource = 'replay';
-  // Compound mains carry per-item fallback_clips — pick the sub-clip
-  // for the oldest unacked item so the fallback targets exactly what
-  // the agent missed. Falls back to the first sub-clip when every
-  // item's already been ack'd (rare — router usually stops before then).
-  const fbClips = (lastNode && lastNode.fallback_clips) || [];
-  if (fbClips.length > 0) {
-    const unackedIds = new Set(dt.getUnackedIds ? dt.getUnackedIds() : []);
-    let pick = null;
-    for (const fc of fbClips) {
-      const shortId = `i${fc.item_index}_${fc.kind || 'main'}`;
-      if (unackedIds.has(shortId)) { pick = fc; break; }
-    }
-    if (!pick) pick = fbClips[0];
-    node = { id: `${dt.getLastPlayedClipId()}__fb_i${pick.item_index}`, clip: pick.clip, text: pick.text || lastNode.text };
-    fbSource = `sub_i${pick.item_index}`;
+  // If anything is still un-ack'd, target it — same selector and same
+  // ordering as the next_item and premature-close triggers, so a
+  // stranded item gets the same clip however the router asks for it.
+  const resurfaced = (dt.getUnackedCount && dt.getUnackedCount() > 0 && dt.resurfaceUnackedItem)
+    ? dt.resurfaceUnackedItem()
+    : null;
+  if (resurfaced) {
+    node = resurfaced.node;
+    fbSource = resurfaced.source;
   } else if (lastNode && lastNode.fallback_clip) {
     // Legacy: single fallback_clip (e.g. post-revision sub-slice) still
     // wins over a full replay for non-compound clips.
@@ -960,15 +979,24 @@ async function _handleSpecificClip(callId, clipId, reasoning) {
   // un-ack'd item's last restatement (or its own main clip) in
   // place of the close-out. Gives the customer one more turn to
   // force the ack before the conversation ends.
+  // `dt.nodes[...]` above returns the RAW tree node, which carries no
+  // `_kind` — that field is only attached to the per-item copies in
+  // `clipsByItem` (decision_tree.js sets `_kind: parsed.kind` there).
+  // Reading `node._kind` directly made this guard dead code on the
+  // specific-clip path, which is the normal way the router closes out:
+  // `thats_all` played with items still un-ack'd and the conversation
+  // ended on a missed item. Derive the kind from the clip id instead —
+  // same value, no dependence on which copy of the node we hold.
+  const nodeKind = node._kind || (dt.parseClipId(longId) || {}).kind;
   let statusLabel = 'played';
-  if (node._kind === 'thats_all' && dt.getUnackedCount() > 0) {
-    const sub = dt.substituteForPrematureClose();
+  if (nodeKind === 'thats_all' && dt.getUnackedCount() > 0) {
+    const sub = dt.resurfaceUnackedItem();
     if (sub) {
       console.log(
-        `[ClipPlayer:premature_close] thats_all → ${sub.id} `
-        + `(unacked=${JSON.stringify(dt.getUnackedIds())})`
+        `[ClipPlayer:premature_close] thats_all → ${sub.node.id} `
+        + `(via=${sub.source} unacked=${JSON.stringify(dt.getUnackedIds())})`
       );
-      node = sub;
+      node = sub.node;
       statusLabel = 'played_premature_close_substitution';
     } else {
       console.warn(
@@ -988,23 +1016,35 @@ async function _handleSpecificClip(callId, clipId, reasoning) {
     && node.fallback_clips.length > 0
     && dt.hasPlayed(node.id)
   ) {
-    const unackedIds = new Set(dt.getUnackedIds ? dt.getUnackedIds() : []);
-    let pick = null;
-    for (const fc of node.fallback_clips) {
-      const s = `i${fc.item_index}_${fc.kind || 'main'}`;
-      if (unackedIds.has(s)) { pick = fc; break; }
+    // If something is un-ack'd, this is the same question the other
+    // triggers ask, so use the same selector and the same ordering.
+    const resurfaced = (dt.getUnackedCount && dt.getUnackedCount() > 0 && dt.resurfaceUnackedItem)
+      ? dt.resurfaceUnackedItem()
+      : null;
+    if (resurfaced) {
+      node = resurfaced.node;
+      console.log(
+        `[ClipPlayer] play("${clipId}") — compound replay swapped to ${resurfaced.source} `
+        + `| ${reasoning}`
+      );
+    } else {
+      // Nothing outstanding — the router just asked to replay a compound
+      // it already heard. Re-say the first item's slice rather than the
+      // whole compound. `_realNodeId` keeps markPlayed recording a real
+      // tree id so the NEXT turn's dt.nodes[lastPlayedClipId] resolves.
+      const pick = node.fallback_clips[0];
+      node = {
+        ...node,
+        id: `${node.id}__fb_i${pick.item_index}`,
+        _realNodeId: node.id,
+        clip: pick.clip,
+        text: pick.text || node.text,
+      };
+      console.log(
+        `[ClipPlayer] play("${clipId}") — compound replay swapped to sub_i${pick.item_index} `
+        + `(${pick.canonical_name || ''}, nothing un-ack'd) | ${reasoning}`
+      );
     }
-    if (!pick) pick = node.fallback_clips[0];
-    node = {
-      ...node,
-      id: `${node.id}__fb_i${pick.item_index}`,
-      clip: pick.clip,
-      text: pick.text || node.text,
-    };
-    console.log(
-      `[ClipPlayer] play("${clipId}") — compound replay swapped to sub_i${pick.item_index} `
-      + `(${pick.canonical_name || ''}) | ${reasoning}`
-    );
   } else {
     console.log(`[ClipPlayer] play("${clipId}") | ${reasoning}`);
   }
@@ -1081,8 +1121,26 @@ async function handlePlay(callId, args) {
     const ackResult = dt.recordAcks(rawAck);
     const acceptedShort = ackResult.accepted.map(a => a.short);
     const rejectedShort = ackResult.rejected.map(r => `${r.raw}:${r.reason}`);
+    // `via` distinguishes the generic-sentinel expansion from specific
+    // ids. Both land in `accepted` as plain short ids, so without this
+    // the log can't tell you which path the router took — you'd have to
+    // grep the raw tool-call arguments to find out.
+    // Key off what the ROUTER sent, not what got accepted — a generic ack
+    // that expands to zero entries would otherwise mislabel itself as
+    // `explicit`, hiding exactly the case worth noticing (generic fired
+    // but acked nothing).
+    // `target` and `generic` both expand, but they encode different claims
+    // (agent targeted an item vs agent named nothing), so label them apart —
+    // conflating them is what made a partial ack unreadable in the logs.
+    const _rawLower = rawAck
+      .filter(a => typeof a === 'string')
+      .map(a => a.trim().toLowerCase());
+    const ackVia = _rawLower.includes('explicit_question_target')
+      ? 'explicit_question_target'
+      : (_rawLower.includes('generic') ? 'generic' : 'explicit');
     console.log(
-      `[ClipPlayer:acks] accepted=${JSON.stringify(acceptedShort)} `
+      `[ClipPlayer:acks] via=${ackVia} raw=${JSON.stringify(rawAck)} `
+      + `accepted=${JSON.stringify(acceptedShort)} `
       + `rejected=${JSON.stringify(rejectedShort)} `
       + `unacked_after=${JSON.stringify(dt.getUnackedIds())}`
     );
@@ -1174,6 +1232,7 @@ async function handlePlay(callId, args) {
   if (choice === 'fallback') return _handleFallback(callId, reasoning);
   if (choice === 'missing_answer') return _handleMissingAnswer(callId, reasoning);
   if (choice === 'just_the_defaults') return _handleJustTheDefaults(callId, reasoning);
+  if (choice === 'only_one') return _handleOnlyOne(callId, reasoning);
   if (choice === 'first_option' || choice === 'second_option') {
     return _handlePositionalOption(callId, choice, reasoning);
   }
@@ -1233,6 +1292,32 @@ async function _handleJustTheDefaults(callId, reasoning) {
     `(${synth.id}) | ${reasoning}`
   );
   await _playInjectAndAck(callId, synth, 'played_just_the_defaults');
+}
+
+async function _handleOnlyOne(callId, reasoning) {
+  if (!dt.onlyOneClipBasename) {
+    await _emitFunctionCallOutput(callId, {
+      status: 'invalid_choice',
+      item_index: dt.getCurrentItem(),
+      valid_choices: dt.computeValidChoices(),
+      note: 'only_one not available — shared only_one.wav is missing.',
+    });
+    return;
+  }
+  // Synthetic node like _handleJustTheDefaults: gives the turn a
+  // recognizable id for logging + dashboard alignment without touching
+  // playedClips / lastPlayedClipId, since it is not a manifest clip.
+  const synth = {
+    id: `g${dt.gameIndex}_s${dt.getCurrentStage()}_i${dt.getCurrentItem()}_only_one`,
+    clip: dt.onlyOneClipBasename,
+    text: 'I only want one.',
+    _synthetic: true,
+  };
+  console.log(
+    `[ClipPlayer] play(only_one) — ${dt.onlyOneClipBasename} ` +
+    `(${synth.id}) | ${reasoning}`
+  );
+  await _playInjectAndAck(callId, synth, 'played_only_one');
 }
 
 async function _handleMissingAnswer(callId, reasoning) {

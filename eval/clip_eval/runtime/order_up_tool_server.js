@@ -1,8 +1,24 @@
 #!/usr/bin/env node
+/*
+ * Copyright 2026 DoorDash, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 /**
  * Minimal HTTP tool server for the Order Up clip-player benchmark.
  *
- * gptRealtime_adapter.js POSTs each examinee tool call to {serverUrl}/api/tool
+ * The Role B adapter POSTs each examinee tool call to {serverUrl}/api/tool
  * with body { tool: 'add_to_cart' | ..., args: {...} }. We maintain an
  * in-memory cart, validate item ids against the task's menu_sample, and
  * write final_cart.json + tool_log.json into the run's record dir on
@@ -338,8 +354,7 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ result: { ok: false, error: 'invalid json' } }));
       return;
     }
-    // Accept both { tool, args } (our convention) and { name, arguments }
-    // (the gptRealtime_adapter wire format).
+    // Accept both supported adapter payload shapes.
     const tool = payload.tool || payload.name;
     const args = payload.args || payload.arguments || {};
     const handler = TOOL_HANDLERS[tool];
@@ -361,7 +376,7 @@ const server = http.createServer((req, res) => {
       writeFinal(submitSource === 'customer_auto' ? 'customer_auto_submit' : 'submit_order');
     }
     res.setHeader('content-type', 'application/json');
-    // Wrap in `.result` to match what gptRealtime_adapter expects.
+    // Role B adapters consume the tool result from this envelope.
     res.end(JSON.stringify({ result }));
   });
 });

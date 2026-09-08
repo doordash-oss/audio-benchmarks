@@ -1,3 +1,17 @@
+# Copyright 2026 DoorDash, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Build a unified timeline JSON for one eval run, used by the visualization
 dashboard.
 
@@ -42,15 +56,11 @@ markers visually align with the audio that plays at that moment.
         calibrate this constant out per-run (see anchor calibration
         below).
      b. CONTENT DELAY (variable, used to grow without bound): for B,
-        OpenAI streams audio at ~0.4% faster than the local 48 kHz
-        pacer can drain it (continuous frames, no DTX). Without
-        intervention, B's adapter's downlinkBuf grew monotonically →
-        the AUDIO at B.wav position P was actually emitted by OpenAI
-        at wall (P - buffer_depth_at_P). This made `agent_speech`
-        markers drift relative to the wav playback. Fixed by draining
-        silence chunks from downlinkBuf in gptRealtime_adapter.js, so
-        buffer stays bounded ~50ms. After the fix, B's content delay
-        is roughly constant; before it grew to ~1s by 180s of session.
+        provider audio and the local 48 kHz bridge can run on slightly
+        different clocks. Role B's transport resamples and paces provider
+        output before it reaches the bridge, keeping this delay bounded.
+        Older recordings produced by other adapters may still contain
+        accumulated drift.
 
 3) WEBRTC AUDIO SAMPLE TIMELINE — internal to each WebRTC track,
    driven by the SENDER's audio clock. We don't observe this directly;
@@ -78,10 +88,9 @@ WHAT THIS FILE DOES:
     yielding wav-file-timeline coordinates.
 
 WHAT THIS FILE DOES NOT DO (yet):
-  - Per-role drift correction for B-side. After the silence-drain fix
-    in gptRealtime_adapter.js, the residual drift is small (~50-300ms,
-    bounded) and bursty — within the visual jitter the dashboard
-    already tolerates. If you need sub-50ms B-side accuracy, the right
+  - Per-role drift correction for B-side. The current provider transport
+    keeps residual drift bounded, but exact behavior is provider-dependent.
+    If you need sub-50ms B-side accuracy, the right
     fix is an offline B.wav RMS scan to find each agent_speech's
     actual onset position and use that as t. The orchestrator's
     inline `audio_onset role=B` log is also available but lags the
@@ -707,7 +716,7 @@ def _parse_b_log_contract(path: Path, anchor: float) -> list[dict]:
             continue
         last_ts = ts
         if "agent_start" in body:
-            open_span = {"start": ts, "stop": None, "chunks": []}
+            open_span = {"start": ts, "stop": None, "raw_stop": None, "chunks": []}
             if pending_transcript:
                 open_span["chunks"].append(pending_transcript)
                 pending_transcript = None
@@ -743,6 +752,17 @@ def _parse_b_log_contract(path: Path, anchor: float) -> list[dict]:
                 open_span["stop"] = (
                     (start + audio_dur) if audio_dur is not None else ts
                 )
+                # The marker's own wall-clock time, kept separately from the
+                # audio-duration-projected `stop` above. The phantom-merge
+                # gap check below needs this: two REAL back-to-back
+                # utterances routinely have a first span whose projected
+                # `stop` (start + audio_duration_s) lands slightly AFTER the
+                # second span's real `agent_start`, because streaming TTS
+                # queues audio faster than realtime. Measuring the merge gap
+                # against the projected stop turns that ordinary overlap
+                # into a large *negative* gap, which is well under the 0.25s
+                # phantom threshold and wrongly merges two distinct turns.
+                open_span["raw_stop"] = ts
                 open_span = None
         elif "agent_transcript" in body:
             m = re.search(r"\{.*\}\s*$", body)
@@ -828,11 +848,20 @@ def _parse_b_log_contract(path: Path, anchor: float) -> list[dict]:
         for sp in spans[1:]:
             prev = merged[-1]
             prev_stop = prev["stop"] if prev["stop"] is not None else prev["start"]
-            if sp["start"] - prev_stop < PHANTOM_MERGE_S:
+            # Gap test uses the RAW marker timestamp, not the audio-duration-
+            # projected stop: a genuine Gemini phantom has near-zero raw gap
+            # (the stop/start markers fire back-to-back in real wall-clock
+            # time), so this still catches it. Two ordinary sequential
+            # utterances instead have a real ~0.5-1s raw gap even when their
+            # projected durations overlap, so they no longer look like a
+            # negative (and therefore always-qualifying) gap.
+            prev_raw_stop = prev["raw_stop"] if prev["raw_stop"] is not None else prev_stop
+            if sp["start"] - prev_raw_stop < PHANTOM_MERGE_S:
                 # Take the LATER stop (in case the merged-in span runs
                 # longer than the leader) and concatenate chunks.
                 later_stop = sp["stop"] if sp["stop"] is not None else prev_stop
                 prev["stop"] = max(prev_stop, later_stop)
+                prev["raw_stop"] = sp["raw_stop"]
                 prev["chunks"].extend(sp["chunks"])
             else:
                 merged.append(sp)
@@ -1133,7 +1162,7 @@ def load_clip_source_windows(task_id: str) -> dict[str, tuple[float, float]]:
     in absolute session-audio time.
 
     Maps:
-      - Direct clips (main/resp/etc.) by clip_id
+      - Direct clips (main/opt/etc.) by clip_id
       - Option sub-clips (`<clip>_opt`) from each parent's option_spans[0]
       - Fallback nodes (`<clip>__fb`) share their parent's source window
         (the fallback only replays from `post_revision_offset_t` onward — we
@@ -1417,7 +1446,7 @@ def load_reference_transcript(
             ORIGINAL item identity (e.g. a panna-cotta span absorbed
             into pad-thai's main shows as g{gi}_s{si}_i1_main, not
             the post-merge i0_main).
-          - Corr clips show their full kind (resp1_corr, not just
+          - Corr clips show their full kind (opt1_corr, not just
             corr) so it's clear which prior clip is being corrected.
         Falls back to None when the span has no enumeration info."""
         if not clip_kind:
@@ -1695,15 +1724,14 @@ def build(record_dir: Path) -> dict:
     # underlying wav-vs-wall offset is a property of the
     # WebRTC+writer pipeline, not of any particular role.
     #
-    # CAVEAT: pre-silence-drain runs had a B-side drift superimposed on
+    # CAVEAT: older runs can have B-side drift superimposed on
     # this constant. B's data-channel events were still wall-anchored
     # correctly, but B's AUDIO drifted progressively LATER in B.wav due
     # to OpenAI vs local clock skew accumulating in B's downlinkBuf.
     # That meant after calibration, A's events landed perfectly but B's
     # events appeared progressively before B's audio. With the
-    # silence-drain fix in role_b/reference/gptRealtime_adapter.js,
-    # buffer stays bounded ~50ms, and B-side residual error is
-    # small/bursty (±0.5s) instead of growing.
+    # the constant offset. Current transports resample and pace provider
+    # output so B-side residual error remains bounded.
     inject_offset_s = 0.0
     first_inject_iso_val = first_inject_iso(record_dir / "adapter_A.log")
     if first_inject_iso_val is not None and task_id:
@@ -1898,23 +1926,50 @@ def build(record_dir: Path) -> dict:
             base = nid[: sub_m.start()] if sub_m else nid
         m = re.match(r"^g\d+_s\d+_(.+)$", base)
         return m.group(1) if m else base
-    for r in events:
-        if r["kind"] != "customer_speech":
-            continue
+    # Pairing is ONE-TO-ONE and order-preserving: the Nth play of a node
+    # binds to the Nth routing decision that resolved to that node, and
+    # each routing event is consumed exactly once. A many-to-one join
+    # (take the latest matching decision, no consumption) misattributes
+    # whenever the same node is played twice — the clipPlayer replays an
+    # unacked clip with NO new routing decision, so the earlier decision
+    # would leak forward onto a replay it did not cause.
+    #
+    # ROUTING_BIND_TOLERANCE_S: the routing line is emitted around the
+    # inject_start it triggers, and which lands first is a race (observed
+    # both +9ms and -1ms in the same run). A decision may therefore sit
+    # slightly AFTER the clip it caused, so allow a small forward window
+    # instead of requiring `routing.t <= speech.t` — that strict form
+    # orphans a decision from its own clip, which then leaks onto the
+    # next play of the same node.
+    ROUTING_BIND_TOLERANCE_S = 0.25
+    consumed: set[int] = set()
+    for r in sorted(
+        (e for e in events if e["kind"] == "customer_speech"),
+        key=lambda e: e["t"],
+    ):
         nid = r.get("node_id")
         if not nid:
             continue
         r_tail = _tail(nid)
-        candidates = [
-            re for re in routing_events
-            if re["t"] <= r["t"] and _tail(re.get("node_id")) == r_tail
-        ]
-        if candidates:
-            chosen = candidates[-1]  # most recent
-            r["chosen_reasoning"] = chosen.get("reasoning")
-            r["chosen_decision"] = chosen.get("decision")
-            if chosen.get("tool_response") is not None:
-                r["chosen_tool_response"] = chosen["tool_response"]
+        chosen = next(
+            (
+                rev for rev in routing_events
+                if id(rev) not in consumed
+                and rev["t"] <= r["t"] + ROUTING_BIND_TOLERANCE_S
+                and _tail(rev.get("node_id")) == r_tail
+            ),
+            None,
+        )
+        # No unconsumed decision for this node: this play is an
+        # auto-replay (or otherwise router-less). Leave it unannotated
+        # rather than inheriting a stale decision.
+        if chosen is None:
+            continue
+        consumed.add(id(chosen))
+        r["chosen_reasoning"] = chosen.get("reasoning")
+        r["chosen_decision"] = chosen.get("decision")
+        if chosen.get("tool_response") is not None:
+            r["chosen_tool_response"] = chosen["tool_response"]
 
     # Merge A's transcription of B's audio onto agent_speech rows.
     # `agent_a_heard` ranges come from A's whisper-transcribed input audio
