@@ -824,12 +824,12 @@ def _build_cascaded(args, tools_schema, log):
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not set in environment")
-    # Default to FDB-v3's stack (whisper-1 / gpt-4o / tts-1); override each stage via env.
+    # Default stack: whisper-1 / gpt-5.5 / tts-1; override each stage via env.
     # NOTE: --model / ROLE_B_MODEL defaults to a *realtime* model id (gpt-realtime-2) that is
     # meaningless for this chat-completions LLM, so the cascaded LLM is controlled by
     # CASCADED_LLM_MODEL (not args.model) to avoid handing the chat API a realtime model.
     stt_model = os.environ.get("CASCADED_STT_MODEL") or "whisper-1"
-    llm_model = os.environ.get("CASCADED_LLM_MODEL") or "gpt-4.1"
+    llm_model = os.environ.get("CASCADED_LLM_MODEL") or "gpt-5.5"
     tts_model = os.environ.get("CASCADED_TTS_MODEL") or "tts-1"
     # OpenAI TTS voices overlap the Realtime set (alloy/echo/fable/onyx/nova/shimmer), so the
     # runner's --voice ("shimmer") is valid here; v3 used "nova". Override via CASCADED_TTS_VOICE.
