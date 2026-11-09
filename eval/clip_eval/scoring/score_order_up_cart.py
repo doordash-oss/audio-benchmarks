@@ -155,6 +155,41 @@ def _count_just_the_defaults_played(record_dir: Path) -> int:
     return n
 
 
+# Universal fallback clips: generic, non-human-recorded customer lines the
+# clipPlayer plays when the agent's phrasing diverges from what any specific
+# recorded clip covers, but the intent is still unambiguous —
+# `just_the_defaults` (option-pick question with no default-eligible
+# coverage), `only_one` (agent proposed an extra unit never requested),
+# `first_option`/`second_option` (agent framed a question as an A-or-B
+# enumeration instead of matching recorded wording). All four represent the
+# same "agent went off-script, a generic clip still steered it to the right
+# answer" pattern, so they're counted together for the recoverability
+# classification. Deliberately excludes `missing_answer` — that's a
+# genuinely unanswered question (no clip, generic or recorded, conveys an
+# answer at all), a different and weaker outcome already tracked separately
+# under the "recoverable failure" band.
+_RECOVERY_CLIP_INJECT_RE = re.compile(
+    r"\] \[ClipPlayer\] inject_start g\d+_s\d+_i\d+_"
+    r"(?:just_the_defaults(?:__fb)?|only_one|first_option|second_option)\b"
+)
+
+
+def _count_recovery_clips_played(record_dir: Path) -> int:
+    """Count `inject_start` events for any universal fallback clip.
+
+    Superset of `_count_just_the_defaults_played` — see
+    `_RECOVERY_CLIP_INJECT_RE` for the full set and why each belongs.
+    """
+    log_path = record_dir / "adapter_A.log"
+    if not log_path.exists():
+        return 0
+    n = 0
+    for line in log_path.read_text(errors="ignore").splitlines():
+        if _RECOVERY_CLIP_INJECT_RE.search(line):
+            n += 1
+    return n
+
+
 def _count_tool_call_errors(record_dir: Path) -> int:
     """Count tool-server calls that returned ``result.ok === false``.
 
@@ -536,12 +571,15 @@ def attach_diff_tags(
     # / n_extra. Counts go on `score` so the dashboard can render badges
     # without re-scanning the logs.
     jtd_count = 0
+    recovery_clip_count = 0
     tool_error_count = 0
     if rd_str:
         rd_path = Path(rd_str)
         jtd_count = _count_just_the_defaults_played(rd_path)
+        recovery_clip_count = _count_recovery_clips_played(rd_path)
         tool_error_count = _count_tool_call_errors(rd_path)
     score["jtd_count"] = jtd_count
+    score["recovery_clip_count"] = recovery_clip_count
     score["tool_error_count"] = tool_error_count
     if jtd_count > 0 and "just-the-defaults" not in tags:
         tags.append("just-the-defaults")

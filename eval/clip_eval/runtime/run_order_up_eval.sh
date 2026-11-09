@@ -95,7 +95,7 @@ SCORER="$SCRIPT_DIR/../scoring/score_order_up_cart.py"
 #   ultravox  → pipecat adapter with --provider ultravox (Ultravox Realtime S2S)
 #   grok      → pipecat adapter with --provider grok_realtime (xAI Grok Voice Agent S2S)
 #   cascaded  → pipecat adapter with --provider cascaded (Silero VAD + Whisper +
-#               gpt-4o + TTS — non-realtime baseline)
+#               gpt-5.5 + TTS — non-realtime baseline)
 # An explicit $ROLE_B_CMD env wins over the dispatch — escape hatch for any
 # adapter that follows clip_eval/docs/contracts/30_role_b_protocol.md.
 # NOTE: the OpenAI token server is ALWAYS started because Role A (clipPlayer)
@@ -145,12 +145,12 @@ if [[ -z "${ROLE_B_CMD:-}" ]]; then
       ROLE_B_MODEL="${ROLE_B_MODEL:-${GROK_REALTIME_MODEL:-${XAI_REALTIME_MODEL:-grok-voice-think-fast-1.0}}}"
       ;;
     cascaded)
-      # Non-realtime baseline: Silero VAD + OpenAI Whisper STT + gpt-4o + OpenAI
+      # Non-realtime baseline: Silero VAD + OpenAI Whisper STT + gpt-5.5 + OpenAI
       # TTS via the pipecat adapter. Model id is CASCADED_LLM_MODEL (not --model,
       # which the adapter scopes to realtime providers).
       ROLE_B_CMD="$REPO_ROOT/.venv/bin/python $CLIP_EVAL_ROOT/role_b/pipecat/pipecat_role_b_adapter.py --provider cascaded"
       ROLE_B_PROVIDER="cascaded"
-      ROLE_B_MODEL="${ROLE_B_MODEL:-${CASCADED_LLM_MODEL:-gpt-4o}}"
+      ROLE_B_MODEL="${ROLE_B_MODEL:-${CASCADED_LLM_MODEL:-gpt-5.5}}"
       ;;
   esac
 else
