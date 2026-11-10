@@ -17,8 +17,9 @@ run_order_up_eval.sh
 
 All repository-owned components in this path are released under Apache-2.0.
 Pipecat and its transitive dependencies retain their respective upstream
-licenses and are installed as package dependencies rather than copied into the
-repository.
+licenses and are installed as package dependencies. One file,
+`raw_audio_track.py`, is adapted from Pipecat's small WebRTC transport and
+carries Pipecat's BSD 2-Clause notice (see the repository's `NOTICE.txt`).
 
 ## Role B process contract
 

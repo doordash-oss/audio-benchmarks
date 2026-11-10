@@ -16,8 +16,8 @@
 dashboard.
 
 Inputs (from a run dir like outputs/OrderUp/<task_id>/<ts>/):
-  adapter_A.log    — clipPlayer events (with ISO timestamps after our patch)
-  adapter_B.log    — gptRealtime events (with ISO timestamps)
+  adapter_A.log    — clipPlayer events (with ISO timestamps)
+  adapter_B.log    — Role B adapter events (with ISO timestamps)
   tool_log.json    — every tool call with absolute epoch ms
   final_cart.json  — final cart state
   score.json       — eval score
@@ -102,11 +102,10 @@ EFFECT ON PERCEIVED AUDIO AT RUNTIME (separate from dashboard):
   affected what A's routing oracle SAW during the eval: A receives B's
   audio via the orchestrator, which forwards from B's adapter at the
   pacer's rate — so A heard B with the same growing delay that landed
-  in B.wav. Before the silence-drain fix, A's clip-injection decisions
-  were reacting to audio progressively staler than wall (up to ~1s by
-  end of session), and the conversation effectively played in slow
-  motion. The fix bounds A's perceived delay to ~50ms — A's routing
-  becomes reactive in near-real-time again.
+  in B.wav. Without the silence-drain, A's clip-injection decisions
+  would react to audio progressively staler than wall. The drain
+  bounds A's perceived delay to ~50ms, so A's routing stays reactive
+  in near-real-time.
 """
 
 from __future__ import annotations
@@ -688,9 +687,8 @@ def _parse_b_log_contract(path: Path, anchor: float) -> list[dict]:
     # SUPERSEDE it with a fresh LLM call before TTS ever plays a single
     # frame — leaving two transcripts within ONE span where the second
     # replaces the first. Without this flag the merge below would
-    # concatenate the superseded text alongside the real text (symptom
-    # on Ember_Oak.g3.s0: span carries "Sure! Would you like cheese... "
-    # prepended to the actual line). Initial True so the first
+    # concatenate the superseded text alongside the real text.
+    # Initial True so the first
     # transcript appends; thereafter only the LATEST transcript in each
     # (start→next-start) window survives within a single span.
     agent_start_since_transcript: bool = True
@@ -1300,7 +1298,7 @@ def load_reference_transcript(
                     if "restaurant" not in s:
                         s["restaurant"] = stage_meta.get("restaurant")
                     # Only this-stage spans belong in the reference transcript;
-                    # mirrors the filter dedupe_and_rollup applies.
+                    # mirrors the session-level dedupe filter.
                     if s.get("stage_attribution") in (None, "this"):
                         game_spans.append(s)
     # Annotate each span with the index it occupies inside its own
@@ -1371,7 +1369,7 @@ def load_reference_transcript(
             s["__edited_by"] = rs.get("edited_by")
             s["__edited_at"] = rs.get("edited_at")
     game_spans.sort(key=lambda s: (s.get("t_start") or 0, s.get("stage_index") or 0))
-    # The session-level dedupe in dedupe_and_rollup.py only filters by
+    # The session-level dedupe only filters by
     # stage_attribution=="this", so spans that sit between two stages can
     # be claimed by BOTH adjacent stage classifications and end up twice
     # in deduped_spans (e.g. "What?" and "OK, you're good." between
@@ -1584,7 +1582,7 @@ def load_reference_transcript(
 
 def load_game_audio_window(session_id: str, game_index: int) -> tuple[float, float] | None:
     """Pull `(audio_start, audio_end)` for the game from stage_alignment.json.
-    The dashboard's /source_audio endpoint slices the session audio to
+    The timeline viewer slices the session audio to
     `[max(0, audio_start - 0.5), audio_end + 0.5]`, so the slice's start
     offset in session time is `max(0, audio_start - 0.5)`.
     """
@@ -1724,14 +1722,12 @@ def build(record_dir: Path) -> dict:
     # underlying wav-vs-wall offset is a property of the
     # WebRTC+writer pipeline, not of any particular role.
     #
-    # CAVEAT: older runs can have B-side drift superimposed on
-    # this constant. B's data-channel events were still wall-anchored
-    # correctly, but B's AUDIO drifted progressively LATER in B.wav due
-    # to OpenAI vs local clock skew accumulating in B's downlinkBuf.
-    # That meant after calibration, A's events landed perfectly but B's
-    # events appeared progressively before B's audio. With the
-    # the constant offset. Current transports resample and pace provider
-    # output so B-side residual error remains bounded.
+    # CAVEAT: runs recorded without output pacing can have B-side drift
+    # superimposed on this constant: B's data-channel events are
+    # wall-anchored correctly, but B's AUDIO lands progressively LATER
+    # in B.wav as provider-vs-local clock skew accumulates in B's output
+    # buffer. Current transports resample and pace provider output so
+    # B-side residual error remains bounded.
     inject_offset_s = 0.0
     first_inject_iso_val = first_inject_iso(record_dir / "adapter_A.log")
     if first_inject_iso_val is not None and task_id:
@@ -2019,7 +2015,7 @@ def build(record_dir: Path) -> dict:
             e["kind"] = "vad_a_of_b"
     # Mirror B's VAD-detected-A ranges as `vad_b_of_a` markers for the
     # lower gap band. CRITICAL: customer_speech.t/t_end was overwritten
-    # earlier (~L1272/L1286) with the INJECT wall-clock time so the
+    # earlier with the INJECT wall-clock time so the
     # rendered bar aligns with combined.wav. The actual B-side VAD
     # timestamps are preserved on each row's `vad_segments[]`. Use those
     # directly so the gap-band shows the real VAD detection windows
@@ -2071,7 +2067,7 @@ def build(record_dir: Path) -> dict:
         if sid and gi is not None:
             win = load_game_audio_window(sid, int(gi))
             if win is not None:
-                # Mirror the slicing logic from viz_dashboard._send_source_clip:
+                # Mirror the source-clip slicing used by the timeline viewer:
                 # the slice is [max(0, audio_start − 0.5), audio_end + 0.5].
                 source_audio_offset = max(0.0, win[0] - 0.5)
                 source_audio_duration = (win[1] + 0.5) - source_audio_offset

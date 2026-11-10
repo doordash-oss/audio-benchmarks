@@ -287,14 +287,12 @@ function _findThatsAllClip(clipsByItem) {
 // utterances; the shared close-out / yes / no / defaults lines are the
 // same audio for every task and live in `order_up_shared/`.
 //
-// `thats_all` was the one generic still sourced from the tree, so trees
-// built before it was added had no close-out at all: `computeValidChoices`
-// withholds `next_item` at end-of-order and then found no thats_all clip
-// to offer, leaving the router with only yes/no and [FALLBACK] replays.
-// It would re-pick an already-played main, the agent heard a second order
-// and duplicated the item. Synthesizing the node removes that whole class
-// of vintage dependency — the on-disk shape below is what the current
-// builder emits, and it holds no sample-specific data.
+// `thats_all` is synthesized here rather than read from the tree, so
+// every tree has a close-out clip regardless of when it was built.
+// Without one, `computeValidChoices` withholds `next_item` at
+// end-of-order and has no thats_all clip to offer, leaving the router
+// with only yes/no and [FALLBACK] replays. The on-disk shape below is
+// what the clip builder emits, and it holds no sample-specific data.
 function _ensureSharedThatsAllNode(tree, clipsByItem, gameIndex, stageIndex) {
   for (const arr of clipsByItem.values()) {
     for (const c of arr) if (c._kind === 'thats_all') return null; // sample has its own
@@ -330,9 +328,9 @@ function createDecisionTree({ treePath, taskConfigPath, overridesPath, clipsBase
   // ── Path resolution ──────────────────────────────────────────────────
   // The tree's `clips_base_dir` is written as a relative path like
   // `artifacts/clips/<task_id>` (the legacy assumption is that cwd ==
-  // ARTIFACTS_PATH-parent). When the eval runtime ships separately from
-  // the artifact corpus — the audio-benchmarks ↔ FDB split today — cwd is
-  // the eval source repo and the relative path resolves to the wrong
+  // ARTIFACTS_PATH-parent). When the eval runtime and the artifact
+  // directory live in different locations, cwd is the eval source repo
+  // and the relative path resolves to the wrong
   // place. Anchor against $ARTIFACTS_PATH instead when the tree path is
   // relative; absolute paths and an explicit override still take
   // precedence.
@@ -427,9 +425,9 @@ function createDecisionTree({ treePath, taskConfigPath, overridesPath, clipsBase
   // specific clip_id; the adapter validates the choice against
   // computeValidChoices() each turn.
   //
-  // playedClips resets on stage transitions (the user explicitly wants
-  // the valid set to be per-stage so the router can't pick a clip from
-  // items in past stages).
+  // playedClips resets on stage transitions: the valid set is per-stage
+  // by design, so the router can't pick a clip from items in past
+  // stages.
   let currentStage = -1;            // -1 = pre-start; advances to 0 on first next_item
   let currentItem = -1;             // -1 = pre-start
   let playedClips = new Set();      // clip_ids played in CURRENT stage
@@ -597,10 +595,10 @@ function createDecisionTree({ treePath, taskConfigPath, overridesPath, clipsBase
   // ackable ids get dropped (with a rejection reason for the log).
   //
   // The `generic` sentinel means "and everything else the last clip
-  // covered". Asking the router to ENUMERATE those ids was a reliability
-  // problem — it would send [] or a partial list, the item stayed un-ack'd,
-  // and the adapter then replayed a clip the agent had in fact
-  // acknowledged. The router now reports `generic` and we expand it here.
+  // covered". The router reports `generic` and we expand it here,
+  // rather than asking the router to ENUMERATE those ids: an incomplete
+  // list would leave an acknowledged item marked un-ack'd and cause its
+  // clip to be replayed.
   //
   // It COMBINES with specific ids: `["i0_main", "generic"]` is the normal
   // output for a follow-up targeted at i0 ("what size for your burger?") —
@@ -721,16 +719,11 @@ function createDecisionTree({ treePath, taskConfigPath, overridesPath, clipsBase
   // `thats_all` (premature close), picking `next_item` with items
   // outstanding, or explicitly asking for `fallback`.
   //
-  // This used to be three separate implementations in the adapter with
-  // three different preference orders, so the same stranded item got a
-  // different clip depending on which choice the router happened to
-  // make — and each copy was missing what another had (premature close
-  // never looked at `fallback_clips`; explicit fallback never looked at
-  // restatements; `next_item` could re-say an ALREADY-ACK'D item). The
-  // triggers still differ in consequence — `thats_all` ends the
+  // The triggers differ in consequence — `thats_all` ends the
   // conversation, `next_item` advances the cursor, `fallback` is an
   // explicit replay — so their call sites stay distinct. Choosing the
-  // clip is not a per-trigger decision and lives here.
+  // clip is not a per-trigger decision and lives here, so the same
+  // stranded item always gets the same clip.
   //
   // Order, applied to the OLDEST un-ack'd entry so the router hears
   // items re-stated in the order the customer originally said them:
@@ -754,10 +747,8 @@ function createDecisionTree({ treePath, taskConfigPath, overridesPath, clipsBase
     const oldest = un[0];
 
     // 1. Restatement — any that EXISTS in the tree for this item, not
-    // just one already played. `lastRestatementByItem` only records
-    // restatements that have been played, so relying on it alone meant a
-    // perfectly good `restatementN` sitting unplayed in the tree was
-    // never chosen and the item fell through to a sub-clip. Prefer the
+    // just one already played (`lastRestatementByItem` only records
+    // restatements that have been played). Prefer the
     // lowest-numbered unplayed one (restatement1 is the customer's first
     // re-statement; higher numbers are for repeated failures), and only
     // if every one has already played fall back to replaying the most
@@ -1000,9 +991,8 @@ function createDecisionTree({ treePath, taskConfigPath, overridesPath, clipsBase
     }
     if (k.startsWith('opt') && !isCorrKind(k) && !k.endsWith('_post_revision')) {
       // Surface the recorded trigger question when the pipeline captured
-      // one. The legacy `resp` branch used to do this and `opt` did not,
-      // so an opt clip could hide the very question it answers from the
-      // router. Folded in here when `resp` was retired.
+      // one, so an opt clip doesn't hide the question it answers from
+      // the router.
       const q = node.parent_question_text
         ? ` (typically when the agent asks: "${node.parent_question_text}")`
         : '';
@@ -1255,8 +1245,8 @@ function createDecisionTree({ treePath, taskConfigPath, overridesPath, clipsBase
       // (always present — TTS is bundled into every game's clip set)
       // with yes/no as framing-matched backups.
       if (!thatsAllClip) {
-        // Pre-fix tasks (decision tree built before #251 added the
-        // thats_all sentinel) reach this branch with no close-out clip.
+        // Decision trees built without the thats_all sentinel reach this
+        // branch with no close-out clip.
         console.warn(
           '[ClipPlayer] WARNING: decision tree missing thats_all sentinel — '
           + 'falling back to yes/no for close-out. Rebuild this game\'s tree '

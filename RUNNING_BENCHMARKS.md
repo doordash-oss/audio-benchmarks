@@ -73,29 +73,18 @@ From the repository root:
 
 ```bash
 cd eval
-npm init -y
-npm install \
-  dotenv \
-  express \
-  wav \
-  wav-decoder \
-  'wrtc@npm:@roamhq/wrtc' \
-  ws \
-  yargs
+npm install
 ```
 
 If npm reports root-owned files under `~/.npm`, use a different cache rather
 than running npm with `sudo`:
 
 ```bash
-npm install --cache /tmp/order-up-npm-cache \
-  dotenv express wav wav-decoder \
-  'wrtc@npm:@roamhq/wrtc' ws yargs
+npm install --cache /tmp/order-up-npm-cache
 ```
 
-`eval/package.json` and `eval/node_modules/` are currently gitignored. Running
-npm may create an untracked `eval/package-lock.json`; tracked dependency
-manifests should replace this local bootstrap flow before the public release.
+Dependencies are declared in `eval/package.json`; `eval/node_modules/` is
+gitignored.
 
 ## 2. Create the Python environment
 
@@ -104,14 +93,7 @@ From `eval/`:
 ```bash
 uv venv --python python3.11 .venv
 
-uv pip install --python .venv/bin/python \
-  'datasets>=4,<5' \
-  python-dotenv \
-  numpy \
-  scipy \
-  openai \
-  websockets \
-  aiohttp
+uv pip install --python .venv/bin/python -r requirements.txt
 ```
 
 The direct `--role-b openai-native` adapter is implemented in Node. The
@@ -208,7 +190,6 @@ file — it is gitignored at any depth.
 | --- | --- | --- |
 | OpenAI Realtime through Pipecat (default) | `--role-b openai` | `OPENAI_API_KEY` |
 | OpenAI Realtime direct WebSocket | `--role-b openai-native` | `OPENAI_API_KEY` |
-| Retained FDB-derived OpenAI WebRTC path | `--role-b openai-fdb` | `OPENAI_API_KEY` |
 | Gemini Live | `--role-b gemini` | `GEMINI_API_KEY` |
 | Grok Voice | `--role-b grok` | `XAI_API_KEY` or `GROK_API_KEY` |
 | Ultravox | `--role-b ultravox` | `ULTRAVOX_API_KEY` |
@@ -242,11 +223,10 @@ OPENAI_REALTIME_MODEL=gpt-realtime-2 \
 The runner will:
 
 1. Hydrate the task from Hugging Face.
-2. Select the appropriate customer simulator profile.
-3. Allocate free local ports.
-4. Start the tool server, orchestrator, Role A, and Role B.
-5. Stop when the conversation reaches its terminal state or duration limit.
-6. Score the final cart and generate behavioral metrics.
+2. Allocate free local ports.
+3. Start the tool server, orchestrator, Role A, and Role B.
+4. Stop when the conversation reaches its terminal state or duration limit.
+5. Score the final cart and generate behavioral metrics.
 
 The default duration is four times the source conversation length, with a
 minimum of 180 seconds. For a short infrastructure probe, pass an explicit
@@ -420,7 +400,7 @@ artifacts are not already present.
 
 ### npm reports root-owned cache files
 
-Use `npm install --cache /tmp/order-up-npm-cache ...`. Do not use `sudo npm` in
+Use `npm install --cache /tmp/order-up-npm-cache`. Do not use `sudo npm` in
 the repository and do not recursively change ownership without understanding
 what else is stored in the cache.
 
@@ -446,13 +426,11 @@ be resolved or documented before treating the release as fully reproducible:
    compound clip to one stage item even when it contains and successfully
    produces multiple expected items. The exact cart score is unaffected when
    every item matches, but the field is misleading.
-2. The output archive shipped in this repository is a prefix — 438 score
-   files across 145 distinct tasks — so the results-page aggregate cannot be
-   reconstructed from it alone. The full archive lives internally and does
-   reproduce it: taking the latest run per task per model over the 248
-   released tasks yields 68.5% / 64.9% / 59.7% / 60.9%, matching the
-   published rates to within 0.4 points. "Latest run per task" is therefore
-   the aggregation the results page uses.
+2. The per-run outputs behind the published results are not included in this
+   repository. The results page reports the mean of 3 sweeps per model over
+   the 248 released tasks; until the run manifest and score files are
+   published, those numbers cannot be reconstructed from this repository
+   alone.
 3. Model aliases can change behavior over time. Record `prompt.json`, retain the
    model identifier, and prefer pinned model snapshots when reproducibility is
    required.

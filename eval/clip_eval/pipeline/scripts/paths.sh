@@ -23,7 +23,6 @@
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 CLIP_EVAL_ROOT="$REPO_ROOT/clip_eval"
-SHARED_ROOT="$CLIP_EVAL_ROOT/_vendor/shared"
 RUNTIME_ROOT="$CLIP_EVAL_ROOT/runtime"
 AUDIO_BRIDGE="$RUNTIME_ROOT/audio_bridge.js"
 TOKEN_SERVER_SCRIPT="$RUNTIME_ROOT/openai_token_server.js"
@@ -54,5 +53,3 @@ SESSIONS_ROOT="$ARTIFACTS_PATH/sessions/order_up"
 # Shared clip pool (yes.wav / no.wav fallbacks)
 SHARED_CLIPS_DIR="$CLIPS_DIR/order_up_shared"
 
-# Runtime split index (dataset enumerator the runner reads)
-PROMPTS_INDEX="$CLIP_EVAL_ROOT/runtime/prompts/order_up.json"

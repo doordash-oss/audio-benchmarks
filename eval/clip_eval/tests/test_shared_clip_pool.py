@@ -14,13 +14,9 @@
 
 """Guard: a shared clip the router can play must be registered for hydration.
 
-This has failed twice, the same way each time. `the_first_option.wav` and
-`the_second_option.wav` were added to the router in July and hydrated in
-September — two months during which those responses silently did not exist.
-`only_one.wav` was added in September and never published at all. Both are
-invisible failures: `availableClipBasename` returns null for a missing file
-and the choice is dropped from `valid_choices`, so the model is simply never
-offered the response and nothing errors.
+A missing shared clip is an invisible failure: `availableClipBasename` returns
+null for a missing file and the choice is dropped from `valid_choices`, so the
+model is simply never offered the response and nothing errors.
 
 The mechanism is that the router names a basename and nothing forces that name
 into `SHARED_CLIP_NAMES`. So this reads the basenames straight out of the

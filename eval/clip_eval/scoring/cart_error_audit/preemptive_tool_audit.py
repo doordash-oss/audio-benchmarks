@@ -150,7 +150,7 @@ def _load_stage_envelope(task_id: str) -> dict | None:
 
     Per-stage tids look like ``order_up.<Restaurant>.<8HEXPREFIX>.gN.sM``.
     The 8-hex is a prefix of the session uuid. We resolve the full uuid
-    by scanning ``v2/artifacts/sessions/order_up/``.
+    by scanning ``artifacts/sessions/order_up/``.
     """
     if not task_id:
         return None

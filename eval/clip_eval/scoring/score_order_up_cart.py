@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """Compare an examinee's `final_cart.json` to the task's `expected_cart` and
-emit a `score.json` in the shape the existing v2 `scoring/score.py` reads.
+emit a `score.json` for the report and audit steps.
 
 Comparison logic:
   - Each entry compared on (item_id, option). Quantities are summed.

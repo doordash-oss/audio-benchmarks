@@ -15,7 +15,7 @@
 
 # Run a single Order Up clip-player eval end-to-end.
 #
-# Usage: run_order_up_eval.sh <task_id> [duration_seconds] [--role-b openai|openai-native|openai-fdb|gemini|grok|cascaded] [--offline]
+# Usage: run_order_up_eval.sh <task_id> [duration_seconds] [--role-b openai|openai-native|gemini|grok|cascaded] [--offline]
 #
 # Reads order_up_tasks/<task_id>.complex.task.json (the only supported
 # variant). Starts a fresh tool server on a free port, launches
@@ -30,7 +30,7 @@
 
 set -euo pipefail
 
-TASK_ID="${1:?Usage: $0 <task_id> [duration_seconds] [--role-b openai|openai-native|openai-fdb|gemini|ultravox|grok|cascaded]}"
+TASK_ID="${1:?Usage: $0 <task_id> [duration_seconds] [--role-b openai|openai-native|gemini|ultravox|grok|cascaded]}"
 shift || true
 # Optional positional duration. Anything starting with "--" is parsed below.
 DURATION_ARG=""
@@ -47,8 +47,8 @@ done
 if [[ "$OFFLINE" == "1" ]]; then
   export CLIP_EVAL_OFFLINE=1
 fi
-if [[ "$ROLE_B_CHOICE" != "openai" && "$ROLE_B_CHOICE" != "openai-native" && "$ROLE_B_CHOICE" != "openai-fdb" && "$ROLE_B_CHOICE" != "gemini" && "$ROLE_B_CHOICE" != "ultravox" && "$ROLE_B_CHOICE" != "grok" && "$ROLE_B_CHOICE" != "cascaded" ]]; then
-  echo "--role-b must be 'openai', 'openai-native', 'openai-fdb', 'gemini', 'ultravox', 'grok', or 'cascaded' (got: $ROLE_B_CHOICE)" >&2; exit 2
+if [[ "$ROLE_B_CHOICE" != "openai" && "$ROLE_B_CHOICE" != "openai-native" && "$ROLE_B_CHOICE" != "gemini" && "$ROLE_B_CHOICE" != "ultravox" && "$ROLE_B_CHOICE" != "grok" && "$ROLE_B_CHOICE" != "cascaded" ]]; then
+  echo "--role-b must be 'openai', 'openai-native', 'gemini', 'ultravox', 'grok', or 'cascaded' (got: $ROLE_B_CHOICE)" >&2; exit 2
 fi
 DURATION_MULT="${DURATION_MULT:-4}"
 DURATION_MIN="${DURATION_MIN:-180}"
@@ -90,14 +90,13 @@ SCORER="$SCRIPT_DIR/../scoring/score_order_up_cart.py"
 # Supported values:
 #   openai    → Pipecat OpenAI Realtime adapter (default)
 #   openai-native → direct OpenAI Realtime WebSocket adapter (no Pipecat)
-#   openai-fdb → retained Full-Duplex-Bench-derived WebRTC implementation
 #   gemini    → pipecat adapter with --provider gemini_live (Gemini Live native S2S)
 #   ultravox  → pipecat adapter with --provider ultravox (Ultravox Realtime S2S)
 #   grok      → pipecat adapter with --provider grok_realtime (xAI Grok Voice Agent S2S)
 #   cascaded  → pipecat adapter with --provider cascaded (Silero VAD + Whisper +
 #               gpt-5.5 + TTS — non-realtime baseline)
 # An explicit $ROLE_B_CMD env wins over the dispatch — escape hatch for any
-# adapter that follows clip_eval/docs/contracts/30_role_b_protocol.md.
+# adapter that follows the Role B process contract in role_b/pipecat/PLAN.md.
 # NOTE: the OpenAI token server is ALWAYS started because Role A (clipPlayer)
 # needs it; Role B adapters that don't use it can ignore the passed --tokenServer.
 ORCHESTRATOR_SCRIPT="$AUDIO_BRIDGE"
@@ -113,13 +112,6 @@ if [[ -z "${ROLE_B_CMD:-}" ]]; then
       ROLE_B_CMD="node $CLIP_EVAL_ROOT/role_b/openai_native/openai_realtime_adapter.js"
       ROLE_B_PROVIDER="openai_native"
       ROLE_B_MODEL="${ROLE_B_MODEL:-${OPENAI_REALTIME_MODEL:-gpt-realtime-2}}"
-      ;;
-    openai-fdb)
-      ROLE_B_CMD="node $SHARED_ROOT/role_b/reference/gptRealtime_adapter.js"
-      ROLE_B_PROVIDER="openai_fdb"
-      ROLE_B_MODEL="${ROLE_B_MODEL:-${OPENAI_REALTIME_MODEL:-gpt-realtime-2}}"
-      ORCHESTRATOR_SCRIPT="$SHARED_ROOT/orchestrator.js"
-      ACTIVE_TOKEN_SERVER_SCRIPT="$SHARED_ROOT/role_b/openai_token_server.js"
       ;;
     gemini)
       # --provider gemini_live tells the pipecat adapter to use Gemini Live's

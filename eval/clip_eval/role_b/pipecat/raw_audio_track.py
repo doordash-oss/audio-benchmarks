@@ -12,6 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Portions of this file are adapted from Pipecat
+# (https://github.com/pipecat-ai/pipecat,
+# src/pipecat/transports/smallwebrtc/transport.py),
+# Copyright (c) 2024-2026, Daily, licensed under the BSD 2-Clause License.
+# See NOTICE.txt at the repository root for the full license text.
+
 """OutgoingAudioTrack — an aiortc audio source fed from a byte buffer.
 
 Adapted from Pipecat's smallwebrtc RawAudioTrack. We push PCM16 mono bytes in
@@ -31,26 +37,22 @@ from aiortc.mediastreams import AudioStreamTrack
 from av import AudioFrame
 
 _PTIME = 0.01            # 10 ms frames — matches the orchestrator's 10 ms pacing
-_TARGET_FRAMES = 5       # ~50 ms target buffer depth (matches the reference adapter's BUFFER_TARGET)
+_TARGET_FRAMES = 5       # ~50 ms target buffer depth
 # Max CONSECUTIVE silence to preserve (a natural pause after a period / between sentences).
-# The old drain dropped EVERY silent frame once depth>target — but burst delivery keeps the
-# buffer deep for the whole turn, so it stripped ALL intra-utterance pauses, jamming
-# sentences together (the "still sounds fast / no pause after periods" symptom). We now keep
+# Burst delivery keeps the buffer deep for the whole turn, so dropping EVERY silent frame
+# above target would strip all intra-utterance pauses and jam sentences together. We keep
 # pauses up to this length and only collapse the EXCESS (e.g. long trailing silence), which
-# still bounds drift. Native preserves pauses naturally because WebRTC paces it at the source.
+# still bounds drift.
 _MAX_PAUSE_FRAMES = 80   # ~800 ms — comfortably covers a sentence-boundary pause
 # Runaway backstop only — NOT the primary drift control (that's the silence-drain
 # below, which is inaudible). It must be large enough to hold a whole agent turn,
 # because Pipecat delivers the model's audio over a WebSocket in a BURST (a multi-
-# second utterance arrives near-instantly), unlike the native adapter's WebRTC leg
-# which is already real-time-paced at the source. With the old 1 s (100-frame) cap,
-# every frame past 1 s was dropped as "oldest" — i.e. REAL SPEECH — truncating each
-# turn to ~1 s and roughly halving the agent's audible audio (measured 8.9 s active
-# vs the native adapter's 22.9 s on the same task), which also garbled Role A's
-# whisper transcription. 30 s comfortably holds any single turn; the silence-drain
-# still returns the buffer to target between turns so latency never accumulates.
-_HARD_CAP_FRAMES = 3000  # ~30 s backstop (was 100 = 1 s, which truncated speech)
-_SILENCE_RMS = 184       # ~ -45 dBFS int16 (matches the reference adapter's silence threshold)
+# second utterance arrives near-instantly). A cap shorter than a turn would drop
+# real speech as "oldest" frames. 30 s comfortably holds any single turn; the
+# silence-drain still returns the buffer to target between turns so latency never
+# accumulates.
+_HARD_CAP_FRAMES = 3000  # ~30 s backstop
+_SILENCE_RMS = 184       # ~ -45 dBFS int16
 
 
 class OutgoingAudioTrack(AudioStreamTrack):
@@ -73,8 +75,8 @@ class OutgoingAudioTrack(AudioStreamTrack):
         Drift control: a producer running faster than 48 kHz (e.g. OpenAI Realtime
         TTS, ~+0.4%) would otherwise grow the queue without bound, pushing B's audio
         progressively later. When the buffer is above target we DROP silent frames so
-        it drains back toward target during pauses (inaudible) — mirroring the native
-        adapter's silence-drain. A hard cap drops oldest frames as a last resort.
+        it drains back toward target during pauses (inaudible).
+        A hard cap drops oldest frames as a last resort.
         Sub-frame remainders linger in self._buf and combine with the next push (no audio
         lost mid-stream); flush() emits the final remainder at end-of-stream."""
         self._buf.extend(pcm)

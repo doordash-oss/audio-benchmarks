@@ -105,7 +105,7 @@ def detect_wav_intervals(wav_path: Path) -> tuple[list[tuple[float, float]], flo
         raise RuntimeError(f"{wav_path.name}: expected {WIRE_SR}Hz, got {sr}Hz")
     # Defensive against partial/streaming WAV headers: trust the bytes
     # actually returned by readframes(), not the header's frame count.
-    # WAVs written by interrupted runs (sweep kill mid-stream) can have
+    # WAVs written by interrupted runs (killed mid-stream) can have
     # a `data` chunk size of 0xFFFFFFFF (streaming sentinel) that makes
     # getnframes() return a multi-GB value, which then crashes
     # struct.unpack. Clamp n to what we actually have on hand.

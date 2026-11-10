@@ -20,10 +20,5 @@ says.
 
 ## Runtime invocation
 
-Invoked by `runtime/domains/order_up/run_order_up_eval.sh`; not run
+Invoked by `runtime/run_order_up_eval.sh`; not run
 standalone.
-
-## Contracts
-
-- Audio + signalling vs Role B: [`docs/contracts/20_role_a_role_b_audio.md`](../docs/contracts/20_role_a_role_b_audio.md)
-- Input file schemas: [`docs/contracts/10_pipeline_to_runtime.md`](../docs/contracts/10_pipeline_to_runtime.md)

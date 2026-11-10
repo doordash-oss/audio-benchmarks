@@ -59,9 +59,6 @@ SESSIONS_ROOT = ARTIFACTS_PATH / "sessions" / "order_up"
 # Shared clip pool (yes.wav / no.wav fallbacks)
 SHARED_CLIPS_DIR = CLIPS_DIR / "order_up_shared"
 
-# Runtime split index (dataset enumerator the runner reads)
-PROMPTS_INDEX = CLIP_EVAL_ROOT / "runtime" / "prompts" / "order_up.json"
-
 # .env file at the project root — eval-runtime modules call load_env() at
 # import to pick up OPENAI_API_KEY and friends.
 ENV_FILE = REPO_ROOT / ".env"
@@ -70,9 +67,7 @@ ENV_FILE = REPO_ROOT / ".env"
 def load_env() -> None:
     """Load .env from REPO_ROOT.
 
-    Replaces the historical pattern of `load_dotenv("/Users/.../v2/.env")`
-    sprinkled across modules — that broke any checkout that wasn't on the
-    original author's machine. Safe to call multiple times.
+    Safe to call multiple times.
     """
     from dotenv import load_dotenv
     load_dotenv(ENV_FILE)

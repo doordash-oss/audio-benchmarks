@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+# Copyright 2026 DoorDash, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Resolve the V1 benchmark working-set task_ids for run_order_up_dataset.sh.
 
 Usage: resolve_v1_task_ids.py <bench_md> <artifacts_path> [--offline] [--prefilter]
@@ -7,19 +21,19 @@ Every row in the clean manifest is a working-set tid — no status flags to
 strip, no profile column to parse. Ordering follows file order. Prints one
 task_id per line.
 
-ID SPACE. The manifest names tasks by their original internal ids; the
+ID SPACE. The manifest names tasks by their original (legacy) ids; the
 published dataset renames them, and `task_id_map()` is the bridge. When a
 map is available every row is translated to its published id and rows with
 no published counterpart are reported on stderr and skipped. When no map
-exists (an internal checkout with no published dataset pinned) the internal
+exists (a local checkout with no published dataset pinned) the legacy
 ids are emitted unchanged.
 
 PREFILTER is OFF by default, deliberately. It checks that each tid has a
-usable decision tree and a complex task config, which is useful internally
+usable decision tree and a complex task config, which is useful with a warm cache
 but fatal for a fresh clone: nothing is on disk yet, hydration happens
 per-task inside the runner, so filtering on artifact presence drops every
-task and the run dies with "No tasks to run". Pass --prefilter for internal
-runs where the artifact store can actually answer (local cache or GCS).
+task and the run dies with "No tasks to run". Pass --prefilter for
+runs where the artifact cache is already populated.
 
 --offline restricts artifact lookups to the local cache.
 """
@@ -63,7 +77,7 @@ def unevaluable(tid: str) -> bool:
 def _published_by_legacy() -> dict:
     """legacy_task_id -> published task_id, or {} when no map is available.
 
-    A missing map is the normal internal case, not an error: fall back to
+    A missing map is not an error: fall back to
     emitting the manifest's own ids.
     """
     try:

@@ -3,11 +3,10 @@
 Copyright 2026 DoorDash, Inc.
 
 Licensed under the Apache License, Version 2.0. See the repository's
-top-level `LICENSE` file.
+top-level `LICENSE.txt` file.
 
 This adapter implements the benchmark's Role B contract directly against the
-OpenAI Realtime WebSocket API. It is independent of the former bundled
-Full-Duplex harness.
+OpenAI Realtime WebSocket API, without Pipecat.
 
 Run one task with the native adapter:
 

@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+# Copyright 2026 DoorDash, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Pre-launch setup for run_order_up_eval.sh.
 
 Hydrates the artifact cache, validates the task/tree files exist, then
@@ -78,11 +92,9 @@ def main() -> None:
     if args.duration_arg:
         duration = int(args.duration_arg)
     else:
-        # Prefer the session alignment file when present — internal checkouts
-        # keep the raw session data. Public releases ship only the derived
-        # window in the task config: stage_alignment.json carries
-        # full-session transcripts and internal filesystem paths, so it is
-        # deliberately not published.
+        # Prefer the session alignment file when present locally. The
+        # published dataset ships only the derived window in the task
+        # config, not stage_alignment.json.
         src_dur = 0.0
         try:
             align_path = Path(args.sessions_root) / session_id / "stage_alignment.json"
@@ -92,9 +104,8 @@ def main() -> None:
         except Exception:
             src_dur = float(task.get("source_window_seconds") or 0.0)
         if src_dur <= 0:
-            # Silence here is how the 180s-floor regression stayed invisible:
-            # runs were truncated to roughly half the published length with no
-            # diagnostic.
+            # Warn loudly: with no source window the run falls back to the
+            # duration floor and may be cut short.
             print(
                 "[run_order_up] WARNING: no source window for this task "
                 "(no stage_alignment.json and no source_window_seconds in the "

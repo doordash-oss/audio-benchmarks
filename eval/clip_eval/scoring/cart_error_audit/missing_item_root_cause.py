@@ -221,7 +221,7 @@ def run_audit(record_dir: Path, *, auto_timeout: bool = False,
     # Patch score.json's tags list. Add the new tag, never remove. This
     # mirrors how `missing-answer-missing-item` is attached by the
     # cart scorer — once a tag is on a run, downstream tools (the
-    # dashboard's compare block, the off-policy audit) read tags from
+    # dashboard, the off-policy audit) read tags from
     # score.json as the source of truth.
     if patch_tags and any_hit and NEW_TAG not in tags:
         tags.append(NEW_TAG)
