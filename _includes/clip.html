@@ -31,7 +31,7 @@ limitations under the License.
     {%- endfor -%}
   </div>
   {%- endif -%}
-  <audio controls preload="auto" src="{{ site.baseurl }}/assets/media/{{ clip.id }}.mp3"></audio>
+  <audio controls preload="auto" src="assets/media/{{ clip.id }}.mp3"></audio>
   <div class="clip-timeline">
     {%- for call in clip.calls -%}
       {%- assign delta = call.t | minus: clip.window_start -%}

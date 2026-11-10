@@ -15,11 +15,6 @@
 theme: jekyll-theme-cayman
 title: Order-Up-Bench
 
-# The site is served from https://doordash-oss.github.io/audio-benchmarks/,
-# so asset URLs need the repository name as a prefix. Change this if the
-# site moves to a custom domain or a different repository name.
-baseurl: /audio-benchmarks
-
 exclude:
   - bin/
   - eval/

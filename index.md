@@ -3,7 +3,7 @@ layout: default
 title: Order-Up-Bench
 ---
 
-<link rel="stylesheet" href="{{ site.baseurl }}/assets/css/timeline.css">
+<link rel="stylesheet" href="assets/css/timeline.css">
 
 {% comment %}
 Failure-mode clips are rendered via the clip.html include, which reads from

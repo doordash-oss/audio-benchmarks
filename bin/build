@@ -35,6 +35,11 @@ fi
 
 rm -rf docs
 bundle exec jekyll build --destination docs
+
+# The theme links its stylesheet as /assets/..., which only resolves when the
+# site sits at a domain root. Make local URLs relative to the page so the
+# site also renders under a project path (GitHub Pages) and from disk.
+ruby -pi -e '$_.gsub!(/\b(href|src)="\/(?!\/)/) { "#{$1}=\"" }' docs/index.html
 touch docs/.nojekyll
 
 echo
