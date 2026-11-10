@@ -25,8 +25,7 @@ full shard download), and the per-worker calls then find a warm cache and
 return immediately.
 
 Lives in its own file rather than a heredoc in the shell wrapper, matching
-``resolve_v1_task_ids.py`` — see commit a44facc, which removed a multiline
-Python call embedded in a shell command substitution.
+``resolve_v1_task_ids.py``.
 
 Usage: prehydrate_tasks.py <task_ids_file>
 """

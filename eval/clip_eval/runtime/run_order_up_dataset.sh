@@ -18,7 +18,7 @@
 #
 # Usage:
 #   run_order_up_dataset.sh [jobs_file] \
-#     [--role-b openai|openai-native|openai-fdb|gemini|ultravox|grok|cascaded] \
+#     [--role-b openai|openai-native|gemini|ultravox|grok|cascaded] \
 #     [--max-concurrency N] \
 #     [--log-dir <path>] \
 #     [--dry-run] \
@@ -28,7 +28,7 @@
 # without running anything.
 #
 # --offline: restrict the default task-list resolution to the local
-# artifact cache (skip GCS existence checks) and forward --offline to
+# artifact cache (skip remote existence checks) and forward --offline to
 # run_order_up_eval.sh for each task.
 #
 # Task list source:
@@ -43,7 +43,7 @@
 #
 #     Set PREFILTER=1 to additionally require a usable decision tree and a
 #     complex task config. That is opt-in on purpose: the checks go through
-#     the artifact store (local cache OR GCS), which a fresh checkout
+#     the artifact store (local cache or remote), which a fresh checkout
 #     cannot answer — hydration is per-task inside the runner — so
 #     prefiltering there would drop every task. See resolve_v1_task_ids.py.
 #
@@ -108,7 +108,7 @@ if [[ -n "$JOBS_FILE" ]]; then
 else
   # Default: V1 benchmark working set — every per-stage row, translated to
   # published task ids when a task_id_map is available. Set PREFILTER=1 to
-  # additionally require a usable tree + complex task config (internal runs
+  # additionally require a usable tree + complex task config (warm-cache runs
   # only; see resolve_v1_task_ids.py).
   # The manifest lives adjacent to this eval tree (eval/V1_BENCHMARK_SET.md);
   # override with $BENCH_MD.
@@ -118,7 +118,7 @@ else
     exit 1
   fi
   # Task-list resolution lives in resolve_v1_task_ids.py, not inline here:
-  # it translates the manifest's internal ids to published ids via
+  # it translates the manifest's legacy ids to published ids via
   # task_id_map() (emitting them unchanged when no map exists), and only
   # prefilters on artifact availability when asked. Prefiltering is opt-in
   # because a fresh checkout has nothing on disk — hydration is per-task

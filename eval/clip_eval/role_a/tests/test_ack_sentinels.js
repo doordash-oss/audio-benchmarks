@@ -1,7 +1,21 @@
+// Copyright 2026 DoorDash, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 const path=require('path');
 const ROLE_A=path.join(__dirname,'..');
 const {createDecisionTree}=require(path.join(ROLE_A,'decision_tree.js'));
-const A='/Users/daniel.fischetti/Projects/Full-Duplex-Bench/v2/artifacts.slicing-20260901';
+const A=process.env.ARTIFACTS_PATH||path.join(__dirname, '..', '..', '..', 'artifacts');
 const TID='order_up.Bella_Roma_Trattoria.24034958.g1.s1';
 const NODE='g1_s1_i0_main';
 let pass=0,fail=0;

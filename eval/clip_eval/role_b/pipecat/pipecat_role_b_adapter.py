@@ -17,22 +17,21 @@
 Pipecat-based Role B adapter for the Order Up benchmark.
 
 Role B is the agent under test. This adapter satisfies the swappable Role B
-contract (clip_eval/docs/contracts/30_role_b_protocol.md): one long-running
+contract (see PLAN.md in this directory): one long-running
 process the runtime drives over (1) CLI args, (2) stdin JSON lines
 (configure_tools / inject), (3) stdout JSON lines (agent_stop / transcripts),
 (4) HTTP tool calls -> POST {serverUrl}/api/tool, and (5) a WebRTC audio leg to
 the orchestrator. The model leg is implemented with Pipecat so additional S2S
 providers can be added behind the same shape.
 
-Built up across milestones (see PLAN.md):
-  M2 (THIS FILE): CLI parsing, stdin reader + queue-until-ready, structured
-                  logging, clean shutdown on SIGTERM/SIGINT/stdin-close.
-                  NO WebRTC, NO model yet.
-  M3: orchestrator WebRTC transport (aiortc + /signal offerer).
-  M4: Pipecat pipeline + OpenAI Realtime model leg.
-  M5: agent_stop + transcripts on stdout. (`inject` is accepted + logged but NOT
-      wired into the live session yet — the Order Up runner never sends it; TODO.)
-  M6: tool calls -> POST /api/tool.
+Responsibilities:
+  - CLI parsing, stdin reader + queue-until-ready, structured logging, and clean
+    shutdown on SIGTERM/SIGINT/stdin-close.
+  - Orchestrator WebRTC transport (aiortc + /signal offerer).
+  - Pipecat pipeline + provider model leg.
+  - agent_stop + transcripts on stdout. (`inject` is accepted and logged but not
+    applied to the live session; the Order Up runner never sends it.)
+  - Tool calls -> POST /api/tool.
 """
 
 import argparse
@@ -79,7 +78,7 @@ def arm_hard_exit(grace: float) -> None:
 
 
 def parse_args(argv=None) -> argparse.Namespace:
-    """Accept the full Role B CLI surface (contract §2). Unknown args are tolerated
+    """Accept the full Role B CLI surface (see PLAN.md). Unknown args are tolerated
     for forward-compatibility with future runner changes."""
     p = argparse.ArgumentParser(description="Pipecat Role B adapter (Order Up examinee)")
     p.add_argument("--role", required=True, choices=["B"], help="contract: fixed to B")
@@ -107,8 +106,8 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 
 class RoleBAdapter:
-    """Holds session state and the stdin/lifecycle plumbing shared by all milestones.
-    M3/M4 will attach the WebRTC transport + Pipecat pipeline and set `ready`."""
+    """Holds session state and the stdin/lifecycle plumbing; attaches the WebRTC
+    transport and Pipecat pipeline and sets `ready`."""
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
@@ -118,12 +117,12 @@ class RoleBAdapter:
         self.ready = False                    # True once the model channel is live
         self._tools_locked = False            # True once the pipeline captured self.tools
         self._stop = asyncio.Event()
-        self.conn: OrchestratorConnection | None = None  # the WebRTC audio leg (M3)
+        self.conn: OrchestratorConnection | None = None  # the WebRTC audio leg
 
     # ── stdin message handling ──────────────────────────────────────────────
     def handle_message(self, msg: dict) -> None:
-        """Apply a single stdin message to the live session. In the M2 skeleton we
-        only parse + log; M5/M6 wire these into the model + tool server."""
+        """Apply a single stdin message: `configure_tools` is captured for the
+        pipeline build; `inject` is logged only."""
         mtype = msg.get("type")
         if mtype == "configure_tools":
             self.tools = msg.get("tools", []) or []
@@ -141,12 +140,11 @@ class RoleBAdapter:
             log(f"inject: text={msg.get('text')!r} "
                 f"trigger_response={msg.get('trigger_response')} "
                 f"delay={msg.get('trigger_response_delay')}")
-            # M5: create a user-role item in the session and optionally trigger a response.
         else:
             log(f"unknown stdin message type: {mtype!r}")
 
     def dispatch_or_queue(self, msg: dict) -> None:
-        """Per contract §3: apply even when messages arrive before the model channel
+        """Apply even when messages arrive before the model channel
         is open — so queue until `ready`, then replay (see flush_pending)."""
         if self.ready:
             self.handle_message(msg)
@@ -198,9 +196,9 @@ class RoleBAdapter:
         self._stop.set()
 
     async def echo_loop(self) -> None:
-        """M3 stand-in for the model: echo the customer's audio back as B's audio,
-        proving the bidirectional pipe works (B.wav should contain A's speech). The
-        Pipecat model pipeline replaces this in M4. Incoming frames are normalized to
+        """Debug stand-in for the model: echo the customer's audio back as B's audio,
+        proving the bidirectional pipe works (B.wav should contain A's speech).
+        Incoming frames are normalized to
         48 kHz mono PCM16 (the orchestrator wire format) and pushed to the outgoing track."""
         resampler = AudioResampler(format="s16", layout="mono", rate=48000)
         track = self.conn.incoming_track
@@ -242,8 +240,8 @@ class RoleBAdapter:
             log(f"failed to set up orchestrator audio leg: {e!r} — shutting down")
             self._stop.set()
         else:
-            # Real ready signal now (transport + customer track up), replacing M2's
-            # simulated-ready placeholder. Replay any queued stdin (e.g. configure_tools).
+            # Ready signal: transport and customer track are up. Replay any queued
+            # stdin (e.g. configure_tools).
             self.ready = True
             self.flush_pending()
             if a.echo:

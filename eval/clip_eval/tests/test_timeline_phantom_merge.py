@@ -14,22 +14,18 @@
 
 """Guard: the phantom-merge coalescer must not fuse two real utterances.
 
-`PHANTOM_MERGE_S` exists to collapse a Gemini-only artifact — Pipecat emits a
-near-zero-length phantom agent_start/agent_stop pair (~3-60ms) around the real
-one. The merge condition used to compare a span's real `agent_start` against
-the PREVIOUS span's audio-duration-*projected* stop (start + audio_duration_s)
-rather than its raw wall-clock stop marker. Streaming TTS queues audio faster
-than realtime, so an ordinary pair of quick back-to-back OpenAI responses
+`PHANTOM_MERGE_S` exists to collapse near-zero-length phantom
+agent_start/agent_stop pairs (~3-60ms) that can be emitted around a real
+one. The merge condition must compare a span's real `agent_start` against
+the PREVIOUS span's raw wall-clock stop marker, not its
+audio-duration-*projected* stop (start + audio_duration_s). Streaming TTS queues audio faster
+than realtime, so an ordinary pair of quick back-to-back responses
 routinely has a first span whose projected stop lands slightly after the
 second span's real start — a negative "gap" that is always under the 0.25s
 threshold regardless of how large it is. Two genuinely separate utterances
 ("Okay, adding that dessert now." / "Got it, churros added. Anything else?",
-0.822s apart in real wall-clock time) were silently fused into one displayed
-timeline bar whose start/end matched neither utterance's real timing.
-
-Found by comparing a dashboard timeline bar against what was actually audible
-in a run's combined.wav — the bar's text was correct (both utterances,
-correctly ordered) but its start/end did not correspond to either one.
+0.822s apart in real wall-clock time) would otherwise be fused into one
+timeline bar whose start/end matches neither utterance's real timing.
 """
 
 from pathlib import Path

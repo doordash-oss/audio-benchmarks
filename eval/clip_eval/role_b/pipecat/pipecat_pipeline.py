@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""M4: the Pipecat model leg.
+"""The Pipecat model leg.
 
-Wraps an already-connected OrchestratorConnection (the M3 audio leg) in a custom
-Pipecat transport, and runs OpenAIRealtimeLLMService so the adapter actually
-listens to the customer and speaks back. This is what replaces the M3 echo loop.
+Wraps an already-connected OrchestratorConnection (the WebRTC audio leg) in a custom
+Pipecat transport, and runs the selected provider's LLM service so the adapter
+listens to the customer and speaks back.
 
 Audio rates: the orchestrator wire is 48 kHz; the OpenAI Realtime service is locked
 to 24 kHz and does NOT resample its input. So the input transport resamples the
@@ -299,7 +299,7 @@ def _make_role_b_grok_cls():
 
 
 class _StdoutEvents(FrameProcessor):
-    """Translate Pipecat frames into the Role B stdout contract (30_role_b_protocol.md):
+    """Translate Pipecat frames into the Role B stdout contract (see PLAN.md):
       - BotStoppedSpeakingFrame      -> {"type":"event","event":"agent_stop"}
       - TranscriptionFrame (user)    -> {"type":"transcript","source":"input","text":...}
       - InterimTranscriptionFrame    -> {"type":"transcript_delta","source":"input","delta":...}
@@ -335,9 +335,9 @@ class _StdoutEvents(FrameProcessor):
     @staticmethod
     def _vlog(kind: str, **fields) -> None:
         """Timestamped (ISO-UTC) marker on stderr for the visualizer's
-        contract-event parser (build_viz_data.parse_b_log_events). Distinct
+        contract-event parser (lib/timeline.py). Distinct
         from emit() (the stdout wire protocol — untouched) and from the
-        adapter's human log(): the format here is exactly what build_viz_data's
+        adapter's human log(): the format here is exactly what that parser's
         ISO_RE matches (`[YYYY-MM-DDTHH:MM:SS.mmmZ] [roleB-viz] <kind> {json}`),
         in UTC so it shares the recording's wall-clock anchor with the native
         adapter's logs. Agent speech is otherwise invisible in the dashboard
@@ -413,7 +413,7 @@ class _StdoutEvents(FrameProcessor):
             )
         elif isinstance(frame, UserStartedSpeakingFrame):
             # B's VAD perception of the customer talking. Mirrors the OpenAI
-            # native adapter's input_audio_buffer.speech_started — build_viz_data
+            # native adapter's input_audio_buffer.speech_started — the timeline builder
             # turns these into customer_speech rows for the dashboard's VAD
             # bars. Without them the timeline shows agent intervals only and
             # there's no way to see when Gemini's server-side VAD actually
@@ -534,7 +534,7 @@ def _build_tools_schema(tools) -> ToolsSchema | None:
 
 
 def _make_tool_handler(name: str, tool_server_url: str, log):
-    """Forward a model tool call to the Order Up tool server (Role B contract §4):
+    """Forward a model tool call to the Order Up tool server (see PLAN.md):
     POST {serverUrl}/api/tool {name, arguments} -> {result}; feed result back to the model.
     The adapter never executes tools itself."""
     async def handler(p: FunctionCallParams):
@@ -554,7 +554,7 @@ def _make_tool_handler(name: str, tool_server_url: str, log):
 
 
 def _build_openai_llm(args, tools_schema, log):
-    """OpenAI Realtime service (24 kHz). interruptible=ON by default — see PLAN.md M7."""
+    """OpenAI Realtime service (24 kHz). interruptible=ON by default."""
     session_props = SessionProperties(
         instructions=(args.systemPrompt or None),
         output_modalities=["audio"],
@@ -599,23 +599,15 @@ def _build_gemini_llm(args, tools_schema, log):
     from pipecat.services.google.gemini_live.llm import InputParams
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        # Loud log before raising: the adapter's exception path historically
-        # swallowed this RuntimeError and the process just hung instead of
-        # exiting — the unconditional log line is the only signal that
-        # survives to the file when that happens. If you see this, the
-        # subprocess env is missing the key (check scripts/run_complex_reeval_jobs.sh
-        # set -a guard, or the wrapper invoking this adapter).
+        # Log before raising so the missing key is recorded in the adapter
+        # log even if the exception itself is not surfaced by the caller.
         log("ERROR: GEMINI_API_KEY not set in subprocess environment — adapter cannot continue")
         raise RuntimeError("GEMINI_API_KEY not set in environment")
-    # TOOL-CALLING NOTE: the native-audio models (gemini-2.5-flash-native-audio-*) have the
-    # best speech quality but are UNRELIABLE at function calling — verified one received
-    # well-formed add_to_cart declarations yet made ZERO tool calls (acknowledges verbally
-    # → empty cart → score 0). For a cart benchmark, tool-calling is essential, so we default
-    # to the half-cascade Live model gemini-3.1-flash-live-preview, which calls tools (verified
-    # 23 calls vs 0) at the cost of more TTS-like audio. (NOTE: it currently OVER-calls —
-    # re-adding items each turn → duplicate carts; that's prompt/behavior tuning, separate
-    # from this plumbing.) Override via GEMINI_LIVE_MODEL. Available Live models on a key:
-    # `client.models.list()` filtered for supported_action "bidiGenerateContent".
+    # Default model: gemini-3.1-flash-live-preview. The benchmark depends on tool
+    # calling, and this is the Live model the harness was validated with for
+    # cart tool calls. Override via GEMINI_LIVE_MODEL. Available Live models on a
+    # key: `client.models.list()` filtered for supported_action
+    # "bidiGenerateContent".
     model = os.environ.get("GEMINI_LIVE_MODEL") or "gemini-3.1-flash-live-preview"
     # Do NOT use args.voice — the runner passes OpenAI voice names (e.g. "shimmer")
     # which Gemini rejects (error 1007). Gemini voices: Charon/Puck/Kore/Fenrir/Aoede.
@@ -915,9 +907,8 @@ def build_pipeline_task(conn, args, log, emit, tools=None, tool_server_url=None)
     # speech-truncation hook our subclasses already suppress. The clip player's
     # customer audio overlaps the agent's tool-call emission, so an interruption
     # frame fires within milliseconds of the call → the cart action is
-    # CANCELLED before the tool server ever sees it (observed end-to-end on a
-    # Gemini run: model emitted add_to_cart(onion-rings); pipecat cancelled it
-    # 4ms later → empty cart). When the user has chosen a non-interruptible
+    # CANCELLED before the tool server ever sees it, leaving an empty cart.
+    # When the user has chosen a non-interruptible
     # profile, we want tool calls to survive that interruption just like the
     # in-flight speech does. Default (interruptible) preserves pipecat's
     # original cancel-on-interrupt behavior.
@@ -991,7 +982,7 @@ async def run_model_pipeline(conn, args, stop_event: asyncio.Event, log, emit,
     runner_task = asyncio.create_task(runner.run(task))
     # Initial LLMContextFrame, queued for provider setup / greet-first:
     #   - Gemini Live REQUIRES it to flip _ready_for_realtime_input; without it all input
-    #     audio is dropped and the model stays silent. (Verified: probe.)
+    #     audio is dropped and the model stays silent.
     #   - Grok Realtime REQUIRES conversation setup before audio is sent; Pipecat drops
     #     user audio until the initial context frame has completed setup.
     #   - OpenAI Realtime doesn't need it to listen, but on the OpenAI path the frame

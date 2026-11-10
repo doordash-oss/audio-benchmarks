@@ -14,7 +14,7 @@
 # limitations under the License.
 
 # Build the Jekyll site into docs/ for GitHub Pages legacy-mode serving.
-# Actions is disabled at the org, so we build locally and commit docs/.
+# The site is built locally and committed under docs/.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

@@ -8,11 +8,6 @@ no status flags, no profile column. (clipPlayer profiles were removed once
 the `generic` acknowledgement sentinel made restate-on-partial-ack
 redundant; there is one clipPlayer prompt for every stage.)
 
-Batch narrative, per-user attributions, and rollout status flags for
-stages that made it in / were removed are preserved in the internal source
-repo at `v2/artifacts/V1_BENCHMARK_SET.history.md` — that log is the
-audit trail for how the set evolved, not a runtime input.
-
 | task_id |
 |---|
 | `order_up.Bella_Roma_Trattoria.02920A03.g1.s0` |

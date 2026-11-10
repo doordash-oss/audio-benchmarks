@@ -274,7 +274,7 @@ _TASK_ID_MAP_FILE = "task_id_map.json"
 _SHARED_CLIPS_PREFIX = "clips/order_up_shared/"
 
 # Every shared-clip basename the customer side can inject. Mirrors
-# SHARED_CLIP_NAMES in the internal build pipeline; kept here so hydration can
+# SHARED_CLIP_NAMES in the clip build pipeline; kept here so hydration can
 # assert completeness rather than trusting whatever the dataset happens to
 # hold. Adding a clip to role_a/decision_tree.js without adding it here is
 # caught by tests/test_shared_clip_pool.py.
@@ -389,7 +389,7 @@ def task_source_window_seconds(tid: str) -> Optional[float]:
 
     The runner scales this to pick a run duration. It is published as a bare
     number rather than shipping the session's ``stage_alignment.json``, which
-    carries full-session transcripts and internal paths.
+    carries full-session transcripts and local filesystem paths.
     """
     entry = task_id_map().get(tid) or {}
     window = entry.get("source_window_seconds")
@@ -448,7 +448,7 @@ def cache_pull_background_noise(session_id: str) -> int:
     """Hydrate ``background_noise/<session_id>/`` and return the file count.
 
     Raises when the session has no noise locally and none can be fetched.
-    Silent absence is what made the missing-noise regression invisible: the
+    Absence must fail loudly: otherwise the
     clipPlayer falls back to digital silence with only a warning, which
     changes turn-taking behaviour without failing the run.
     """
@@ -486,10 +486,7 @@ def cache_pull_shared_clips() -> int:
     is quietly dropped from ``valid_choices``, so the model is never asked the
     question it was meant to answer and nothing errors.
 
-    That is not hypothetical: the previously published revision shipped 6 of
-    the 7 (no ``only_one.wav``), and before that was missing the pool
-    entirely, costing three more responses. See commit c457555 — "none of it
-    failed loudly".
+    This check keeps an incomplete pool from being used silently.
     """
     local_root = ARTIFACTS_PATH / "clips" / "order_up_shared"
     if not is_offline():
@@ -519,7 +516,7 @@ def _derive_clip_role(clip_kind) -> Optional[str]:
     Replaces the old inline expression, which emitted the raw kind — so
     ``opt1`` / ``restatement1`` / ``opt1_corr_post_revision`` were bucketed
     under values ClipRole cannot hold, and scoring saw a different role
-    vocabulary on Hugging Face than on the internal artifacts.
+    vocabulary on Hugging Face than in locally built artifacts.
     """
     if not isinstance(clip_kind, str) or not clip_kind:
         return None
@@ -605,10 +602,10 @@ def _materialize_hf_row(row: dict, expected_tid: str) -> None:
 
         if source != "manifest":
             # Audio-delivery rows only. `customer_clips` has no row for any of
-            # these, so emitting one would inject clips the internal manifest
+            # these, so emitting one would inject clips a locally built manifest
             # does not have — polluting eval_metrics' per-clip lookup and
             # turn_taking_analysis' durations, and making an HF-hydrated run
-            # score against a different clip set than a GCS-hydrated one:
+            # score against a different clip set than a locally built one:
             #   fallback/option/sub_clip — internally these hang off their
             #     parent as fallback_audio_path / option_spans[] / sub_clips[]
             #   tts_filler — yes/no/thats_all, copied into each task dir by
@@ -672,7 +669,7 @@ def _materialize_hf_row(row: dict, expected_tid: str) -> None:
     manifest = {
         "task_id": tid,
         # session_id / game_index come from task_id_map, not the row — the
-        # published ids dropped them. Both are required by the internal
+        # published ids dropped them. Both are required by the
         # manifest schema and are what locate the session's noise.
         "session_id": session_id,
         "game_index": game_index,
@@ -700,10 +697,10 @@ def _materialize_hf_row(row: dict, expected_tid: str) -> None:
 def cache_is_current(tid: str) -> bool:
     """Is the local cache for ``tid`` usable as-is?
 
-    Three conditions, and two of them used to be wrong:
+    Three conditions:
 
     * **Provenance.** A manifest with no ``_source.repository`` was built
-      locally by the internal pipeline. It is authoritative and must never be
+      locally by the clip build pipeline. It is authoritative and must never be
       overwritten from Hugging Face — that is data loss, not a cache refresh.
     * **Revision.** A cache built at a different revision must be rebuilt, or
       every existing user's warm cache pins them to the old data forever and a
@@ -746,10 +743,10 @@ def cache_is_current(tid: str) -> bool:
 def _cache_pull_stage_huggingface(tid: str) -> None:
     """Materialize a task from the dataset unless the local cache already has it.
 
-    Three things decide "already has it", and two of them used to be wrong:
+    Three things decide "already has it":
 
     * **Provenance.** A manifest with no ``_source.repository`` was built
-      locally by the internal pipeline. It is authoritative and must never be
+      locally by the clip build pipeline. It is authoritative and must never be
       overwritten from Hugging Face — doing so is data loss, not a cache
       refresh. The old code reached that path whenever a locally built
       manifest's relative ``audio_path`` failed to resolve from the current
@@ -763,12 +760,10 @@ def _cache_pull_stage_huggingface(tid: str) -> None:
       ``role_a/decision_tree.js``, so the check no longer depends on cwd.
     """
     if not cache_is_current(tid):
-        # Single-tid streaming (`_hf_row`, one call per task) is gone: it
-        # linear-scanned the dataset per task and transferred audio for every
-        # row it skipped past, which moved ~37 GB to hydrate a 300 MB split
-        # one task at a time. Route through the same shard-download path
-        # `cache_pull_stages` uses, even for a set of one, so there is only
-        # one hydration mechanism to keep correct.
+        # Route through the same shard-download path `cache_pull_stages`
+        # uses, even for a set of one, so there is only one hydration
+        # mechanism to keep correct (streaming the dataset per task would
+        # transfer audio for every row it skips past).
         _materialize_from_shards({tid})
 
 

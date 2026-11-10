@@ -112,7 +112,7 @@ let routingResponseInFlight = false;  // true while we're between response.creat
 let clipPlaybackEndsAt = 0;  // epoch ms when the currently-playing clip will finish draining
 // NOTE: A-side whisper transcription of B's audio is enabled in the
 // session config so the events flow into adapter_A.log (where
-// build_viz_data picks them up for the dashboard's "🎤 A heard" band).
+// the timeline builder picks them up for the "🎤 A heard" entries).
 // We deliberately do NOT track the latest transcript in adapter state
 // or inject it into tool results — by the time A fires a routing
 // decision, whisper is always one turn stale, and the resulting frame
@@ -198,11 +198,10 @@ let noiseBuf = Buffer.alloc(0);// Partial-frame carryover between pulls.
 // gate the next clip would land on top of B's continuing audio.
 //
 // Driven by a simple energy-based VAD on the audio A receives from the
-// orchestrator (which IS B's audio). Replaces two prior paths that this
-// gate had: A's session VAD speech_started/stopped events (delivered
-// laggy/missed under load), and the post-eval calibrated interrupt scan
-// (post_eval_calibrate_interrupts.py) — both consolidated into a single
-// realtime VAD whose `agentSpeaking` we trust everywhere.
+// orchestrator (which IS B's audio). The gate uses this local signal
+// rather than A's session VAD speech_started/stopped events, which can
+// arrive after the audio they describe; `agentSpeaking` from this
+// realtime VAD is the single source of truth everywhere.
 const AGENT_VAD_RMS_INT16 = 300;        // ≈ -41 dBFS. The agent broadcasts true
                                         // silence between turns so a coarse
                                         // threshold suffices.
@@ -383,9 +382,9 @@ function buildVadConfig(mode) {
     //     included in the "speech_started" event. 600ms makes sure soft
     //     onsets aren't clipped from the audio the model gets to evaluate.
     //   silence_duration_ms: how long of continuous silence before the
-    //     server fires speech_stopped. 1750ms covers the empirically
-    //     observed ~1.7s speech_started event delivery latency from
-    //     OpenAI's VAD: if the agent resumes speaking after a brief
+    //     server fires speech_stopped. 1750ms leaves headroom for
+    //     speech_started event delivery (measured at up to ~1.7s in
+    //     this setup): if the agent resumes speaking after a brief
     //     pause, the resume event lands before our router auto-fires,
     //     so we don't accidentally inject during the next utterance.
     //     Tradeoff: slower end-of-turn detection by ~1s.
@@ -619,9 +618,9 @@ async function doInitialTurn() {
     console.log(`[ClipPlayer] Deleted greeting conversation item ${greetingItemId}`);
   }
   await injectClip(initialNode);
-  // Log a synthetic play(initial) line so build_viz_data can attach a
+  // Log a synthetic play(initial) line so the timeline builder can attach a
   // "routed: …" reasoning band to the first customer_speech row in the
-  // dashboard. There's no model decision for the initial turn — it's an
+  // run timeline. There's no model decision for the initial turn — it's an
   // auto-play triggered by the agent's greeting ending.
   console.log(
     `[ClipPlayer] play(initial) → s${dt.getCurrentStage()} i${dt.getCurrentItem()} ${initialNode.id} | ` +
@@ -639,13 +638,10 @@ async function doInitialTurn() {
     const valid_choices = dt.computeValidChoices();
     // Must carry the SAME ack fields as a real tool response. The initial
     // clip is frequently the COMPOUND main, so this synthetic state is the
-    // moment two items first become ackable — and without the arrays the
-    // router has nothing to report against on its first turn. Observed on
-    // Corner_Bistro.6C3C0612.g8.s2: the router correctly declined to assert
-    // acks ("no unacknowledged list was provided in the prior tool
-    // response"), i0_main stayed outstanding for all 9 turns, and the
-    // premature-close guard replayed its sub-clip 4 times while the agent
-    // re-added the item each round.
+    // moment two items first become ackable — without the arrays the
+    // router has nothing to report against on its first turn, the items
+    // stay outstanding, and the premature-close guard keeps replaying
+    // their sub-clips.
     safeSendDC({ type: 'conversation.item.create', item: {
       type: 'message', role: 'system',
       content: [{ type: 'input_text', text: JSON.stringify({
@@ -698,13 +694,12 @@ async function _emitFunctionCallOutput(callId, payload) {
   // Tool results do NOT include any whisper transcript. The model has
   // real-time audio of the agent's turn; injecting a whisper transcript
   // here would always be one turn STALE (whisper delivery ~1-2s lags
-  // the speech_stopped that triggers routing) and creates frame
-  // mismatches like the Bella Roma "I don't see teriyaki burger" /
-  // "Got it cheeseburger" confusion. A-side transcription stays enabled
-  // in the session config purely so the events flow into adapter_A.log
-  // for the dashboard's "🎤 A heard" debug band.
+  // the speech_stopped that triggers routing) and would pair the router's
+  // decision with the wrong agent utterance. A-side transcription stays
+  // enabled in the session config purely so the events flow into
+  // adapter_A.log for the "🎤 A heard" entries on the run timeline.
   //
-  // Also mirror the payload to stdout so the dashboard timeline can
+  // Also mirror the payload to stdout so the run timeline can
   // attach it to the corresponding routing event and render it on
   // hover — one JSON per line, prefixed with the tag the parser
   // watches for (`[ClipPlayer:tool_response]`).
@@ -828,20 +823,17 @@ async function _handleNextItem(callId, reasoning) {
   if (!target) {
     // End-of-order: backend-only close-out. When `next_item` is picked
     // but there's no next item, auto-play the "that's all" clip so the
-    // router doesn't have to make a separate close-out decision. The
-    // earlier "reject + return invalid_choice" behavior had the router
-    // staring at a hint and not always picking it — observed loops of
-    // 5+ next_item picks followed by the model wedging entirely. With
-    // this we collapse the close-out path: any next_item past the last
+    // router doesn't have to make a separate close-out decision.
+    // Rejecting the call with an invalid_choice hint instead can leave
+    // the router re-picking next_item, so any next_item past the last
     // item plays thats_all directly.
     if (dt.thatsAllClip) {
       console.log(`[ClipPlayer] play(next_item) → auto-thats_all ${dt.thatsAllClip.id} (no more items) | ${reasoning}`);
       await _playInjectAndAck(callId, dt.thatsAllClip, 'played_thats_all');
       return;
     }
-    // Fallback for tasks (legacy / pre-#251 trees) where no thats_all
-    // sentinel is wired in: surface valid_choices and let the router
-    // pick yes/no manually.
+    // Fallback for decision trees with no thats_all sentinel wired in:
+    // surface valid_choices and let the router pick yes/no manually.
     const valid_choices = dt.computeValidChoices();
     console.log(`[ClipPlayer] REJECTED next_item — order complete and no thats_all clip configured; use yes/no close-out. | ${reasoning}`);
     await _emitFunctionCallOutput(callId, {
@@ -867,11 +859,9 @@ async function _handleNextItem(callId, reasoning) {
   }
   console.log(`[ClipPlayer] play(next_item) → s${ns} i${ni} ${main.id} | ${reasoning}`);
   // State mutation deferred to the commit callback so a refusal (agent
-  // still speaking) leaves the cursor untouched. Without this, observed
-  // failure in g7: next_item was refused at s0_i0 but advanced cursor to
-  // s0_i1, then a follow-up specific-clip play stayed at i1, and
-  // subsequent next_items walked past the dal-makhani item entirely
-  // without ever injecting it.
+  // still speaking) leaves the cursor untouched. Advancing eagerly would
+  // let a refused next_item move the cursor past an item whose clip was
+  // never injected.
   await _playInjectAndAck(callId, main, 'advanced', undefined, () => {
     // advanceTo handles playedClips reset on stage transition
     dt.advanceTo(ns, dt.getCurrentItem());
@@ -899,7 +889,7 @@ async function _handleYesNo(callId, which, reasoning) {
     });
     return;
   }
-  // Synthetic node: id is recognizable for logging / dashboard timeline
+  // Synthetic node: id is recognizable for logging / run timeline
   // alignment, but the node isn't a real manifest clip so we DON'T add it
   // to playedClips and DON'T update dt.getLastPlayedClipId() (fallback should
   // still replay the real most-recent clip, not yes/no).
@@ -982,11 +972,10 @@ async function _handleSpecificClip(callId, clipId, reasoning) {
   // `dt.nodes[...]` above returns the RAW tree node, which carries no
   // `_kind` — that field is only attached to the per-item copies in
   // `clipsByItem` (decision_tree.js sets `_kind: parsed.kind` there).
-  // Reading `node._kind` directly made this guard dead code on the
-  // specific-clip path, which is the normal way the router closes out:
-  // `thats_all` played with items still un-ack'd and the conversation
-  // ended on a missed item. Derive the kind from the clip id instead —
-  // same value, no dependence on which copy of the node we hold.
+  // Fall back to deriving the kind from the clip id so this guard also
+  // applies on the specific-clip path, which is the normal way the
+  // router closes out — same value, no dependence on which copy of the
+  // node we hold.
   const nodeKind = node._kind || (dt.parseClipId(longId) || {}).kind;
   let statusLabel = 'played';
   if (nodeKind === 'thats_all' && dt.getUnackedCount() > 0) {
@@ -1279,7 +1268,7 @@ async function _handleJustTheDefaults(callId, reasoning) {
     return;
   }
   // Synthetic node like _handleYesNo: surfaces a recognizable id for
-  // logging + dashboard timeline alignment, but not a real manifest clip
+  // logging + run timeline alignment, but not a real manifest clip
   // so we don't update playedClips / dt.getLastPlayedClipId().
   const synth = {
     id: `g${dt.gameIndex}_s${dt.getCurrentStage()}_i${dt.getCurrentItem()}_just_the_defaults`,
@@ -1305,7 +1294,7 @@ async function _handleOnlyOne(callId, reasoning) {
     return;
   }
   // Synthetic node like _handleJustTheDefaults: gives the turn a
-  // recognizable id for logging + dashboard alignment without touching
+  // recognizable id for logging + timeline alignment without touching
   // playedClips / lastPlayedClipId, since it is not a manifest clip.
   const synth = {
     id: `g${dt.gameIndex}_s${dt.getCurrentStage()}_i${dt.getCurrentItem()}_only_one`,
@@ -1460,7 +1449,7 @@ async function handleToolCall(callId, toolName, argsStr) {
   await loadNoiseClips(argv.noiseDir);
   // Seed the noise rotation for the pre-first-clip window from the
   // tree's `initial_noise_rotation` (assigned at build time by
-  // build_customer_clips). Older trees without this field fall back
+  // the clip build step). Older trees without this field fall back
   // to the alphabetical noiseClips list inside pullNoiseFrame().
   if (Array.isArray(dt.initialNoiseRotation) && dt.initialNoiseRotation.length) {
     applyNoiseRotation(dt.initialNoiseRotation, 'initial');
@@ -1651,10 +1640,9 @@ async function connectOpenAI() {
         case 'input_audio_buffer.speech_started':
           // NOTE: agentSpeaking is driven exclusively by the RMS VAD on
           // orchSink (the B-audio A receives). We intentionally do NOT
-          // touch agentSpeaking here — A's session VAD on the uplink
-          // direction is laggy and unreliable for this purpose. The
-          // OpenAI event is still useful as a bootstrap signal for
-          // the examinee's greeting.
+          // touch agentSpeaking here — the local VAD is the timelier
+          // signal for gating. The session VAD event is still useful as
+          // a bootstrap signal for the examinee's greeting.
           //
           // Cancel the post-clip "no agent speech" fallback timer.
           // Purpose of the timer (set in injectClip) is to handle the
@@ -1663,11 +1651,8 @@ async function connectOpenAI() {
           // we should wait for the natural speech_stopped to drive
           // routing instead of forcing it mid-utterance. Without this
           // cancellation, the 8 s ceiling can expire DURING the agent's
-          // continuous speech (observed: agent says "Okay, let's get
-          // the crust choice... garlic crust or regular crust?" — timer
-          // fires before "garlic crust or regular crust?" is committed,
-          // routing model sees only the first half and picks
-          // next_item).
+          // continuous speech, and the routing model would see only the
+          // first half of a two-part question.
           if (awaitingAgentTurn && agentResponseTimer) {
             clearTimeout(agentResponseTimer);
             agentResponseTimer = null;
@@ -1729,10 +1714,10 @@ async function connectOpenAI() {
 
         // (We deliberately do NOT handle
         // 'conversation.item.input_audio_transcription.completed' here.
-        // The events still fire and land in adapter_A.log — build_viz_data
-        // parses them there for the dashboard's "🎤 A heard" band — but
-        // we don't feed any transcript into the routing model, since
-        // whisper delivery is too laggy to be timely on the current turn.)
+        // The events still fire and land in adapter_A.log, where the
+        // timeline builder reads them for the "🎤 A heard" entries, but
+        // we don't feed any transcript into the routing model, since the
+        // transcript arrives too late to be timely on the current turn.)
 
         case 'response.created':
           // If a routing decision is already in flight, cancel this new
@@ -1757,16 +1742,12 @@ async function connectOpenAI() {
           // its play() function call), we MUST send a synthetic
           // function_call_output back to the LLM. Otherwise the LLM
           // sees its in-progress tool call hanging in conversation
-          // history with no result and stops trying — it silently
-          // emits commentary text ("still working", "please hold on")
-          // for the remainder of the run until SIGTERM. Observed on
-          // Robin Salmi 02920A03.g1: response.done arrived with
-          // status="cancelled" reason="turn_detected" after the 4th
-          // play() call was killed by the agent's barge-in. The
-          // router went silent for 2 minutes 7 seconds, no clips
-          // injected, no error. With the synthetic
-          // function_call_output below, the LLM's tool call gets
-          // resolved with status="cancelled_retry" and a fresh
+          // history with no result and stops issuing tool calls for
+          // the remainder of the run. This happens when response.done
+          // arrives with status="cancelled" (e.g. reason="turn_detected"
+          // after the agent barges in on a play() call). With the
+          // synthetic function_call_output below, the LLM's tool call
+          // gets resolved with status="cancelled_retry" and a fresh
           // response.create wakes it up to try again.
           const resp = evt.response || {};
           if (resp.status === 'cancelled') {

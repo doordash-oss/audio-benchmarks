@@ -1,12 +1,25 @@
 #!/usr/bin/env node
+// Copyright 2026 DoorDash, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 /**
  * test_subclip_fallback.js — when an item is left unacknowledged, which
  * clip does the runtime replay?
  *
  * Why this exists: a live eval can't test it. On a clean run the agent
  * acknowledges every item, nothing is stranded, and the replay path is
- * never entered (Ember_Oak g4.s0 scored 1.0 with 3 injections and zero
- * replays). The behaviour has to be driven directly.
+ * never entered. The behaviour has to be driven directly.
  *
  * What it asserts — the ONE ordering, for every trigger:
  *    1. a `restatementN` for the unacked item, when one exists
@@ -34,7 +47,7 @@ function arg(name, dflt) {
 
 const ARTIFACTS = arg(
   'artifacts',
-  '/Users/daniel.fischetti/Projects/Full-Duplex-Bench/v2/artifacts.slicing-20260901',
+  process.env.ARTIFACTS_PATH || path.join(__dirname, '..', '..', '..', 'artifacts'),
 );
 
 // Two tids chosen so both branches of the ordering are covered by real

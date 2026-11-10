@@ -14,12 +14,10 @@
 
 """Guard: code and docs must agree on which dataset revision is pinned.
 
-Commit 31caf66 fixed exactly this drift — "the doc pointed HF_REVISION at the
-snapshot taken before the background noise and task id map were published", so
-following the documented setup verbatim produced a run missing inputs the code
-expected. The pin lives in one constant but is quoted in prose and in a
-copy-pasteable `load_dataset` snippet, and a republish has to move all of them
-together.
+If the documented revision drifts from the pinned one, following the setup
+guide verbatim produces a run missing inputs the code expects. The pin lives
+in one constant but is quoted in prose and in a copy-pasteable `load_dataset`
+snippet, and a republish has to move all of them together.
 
 Run: python -m clip_eval.tests.test_hf_revision_pin
 """

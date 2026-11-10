@@ -10,12 +10,10 @@ Screenshot*.png
 .env
 **/.env
 
-# eval/ — only the clip_eval/ source tree is tracked; the rest is
-# either local (artifacts) or symlinked into a sibling repo.
+# eval/ — local environments, caches, and downloaded/generated artifacts.
 eval/.venv
 eval/artifacts/
 eval/node_modules
-eval/package.json
 eval/__pycache__/
 eval/**/__pycache__/
 eval/**/*.pyc

@@ -15,7 +15,7 @@
 """Turn-taking analysis for one Order Up run.
 
 DETERMINISTIC. No LLM. All labels are arithmetic on VAD timestamps, agent
-word counts, and (later) the cart diff. Implements the locked spec:
+word counts, and (later) the cart diff. The rules:
 
   Timeline: agent speech intervals (RMS-VAD on B.wav) and clip inject_start
   times share one clock (orchestrator anchor). So we can place every agent
@@ -72,8 +72,8 @@ CLEAR_MARGIN_S = 1.0              # onset must be >=1s before customer's last wo
 # A genuine barge-in INTO this clip means the agent let the customer talk for a
 # beat and THEN cut in. If the agent's onset is in the first MIN_BARGEIN_ONSET_S
 # of the clip, it isn't cutting into THIS clip's content — it's a spurious
-# VAD trigger on background noise / a spill-over from the previous turn. Human
-# review (Jun 2026) of all 30 clear candidates: every confirmed-real one starts
+# VAD trigger on background noise / a spill-over from the previous turn. In a
+# hand-reviewed sample of 30 clear candidates, every confirmed-real one starts
 # >=2.44s in; the false positives all fire <1.5s in. Gating the CLEAR tier on
 # this makes the headline interruption rate deterministic (no hand-verify needed).
 MIN_BARGEIN_ONSET_S = 2.0
@@ -328,7 +328,7 @@ def analyze(record_dir: Path) -> dict:
 
     # ---- PASS 2 (#1 filter): split TRUE interruptions from timing artifacts ----
     # Per-run VAD offset = typical clip-end -> response lag on clean takes
-    # (consistent within a run, varies across runs — per Dan).
+    # (consistent within a run, varies across runs).
     _lats = [r["take_latency_s"] for r in rows if r["label"] == "good_take" and r["take_latency_s"] is not None]
     run_offset = round(statistics.median(_lats), 3) if _lats else None
     for i, r in enumerate(rows):
@@ -341,7 +341,7 @@ def analyze(record_dir: Path) -> dict:
         # clip got no response -> this is the delayed response to the previous
         # clip / a timeout collision, not a barge-in of the current clip.
         if onset_rel is not None and onset_rel < EARLY_ONSET_S and prev_no_resp:
-            r["label"] = "no_response"       # per Dan: fold into no-response
+            r["label"] = "no_response"       # fold into no-response
             # (provenance kept in interruption_artifact=True + artifact_reason)
             r["interruption_artifact"] = True
             r["artifact_reason"] = ("timeout_collision" if (prev and prev.get("timed_out"))

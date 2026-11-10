@@ -23,7 +23,7 @@ and rolls up:
       are already relabeled "no_response" by the analyzer's pass-2 filter, with
       provenance kept in interruption_artifact / artifact_reason).
 
-  + the full per-model summary the /compare dashboard reads (interruption rate,
+  + the full per-model summary (interruption rate,
     no-response, backchannel, takeover, latency).
 
 All deterministic; no LLM. Run: python -m clip_eval.scoring.turn_taking_breakdowns
@@ -91,7 +91,7 @@ def build(final_runs: dict) -> dict:
 
 
 def build_summary(final_runs: dict) -> dict:
-    """Full per-model turn-taking summary for the dashboard (/api/turn_taking).
+    """Full per-model turn-taking summary for the dashboard.
     Rebuilt from current deterministic turn_taking.json — no human verification.
     Interruptions = CLEAR tier (margin>=1.0 AND onset>=2.0). We do NOT split
     interruptions by run-success: the metric stands alone, uncorrelated with

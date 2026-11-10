@@ -18,6 +18,10 @@ title: Order-Up-Bench
 exclude:
   - bin/
   - eval/
-  - initial_doc
   - README.md
+  - RUNNING_BENCHMARKS.md
+  - CONTRIBUTING.md
+  - CLA.md
+  - LICENSE.txt
+  - NOTICE.txt
   - "Screenshot*.png"

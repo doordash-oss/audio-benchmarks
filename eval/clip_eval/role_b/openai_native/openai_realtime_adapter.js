@@ -16,9 +16,9 @@
 /**
  * Native OpenAI Realtime Role B adapter for the Order Up benchmark.
  *
- * This is a clean implementation of the repository's Role B protocol. It
- * connects the local benchmark audio bridge to OpenAI Realtime directly over
- * WebSocket, without Pipecat or code from the former bundled harness:
+ * This adapter implements the repository's Role B protocol. It connects the
+ * local benchmark audio bridge to OpenAI Realtime directly over WebSocket,
+ * without Pipecat:
  *
  *   audio bridge WebRTC (48 kHz PCM) <-> this adapter <-> OpenAI WS (24 kHz PCM)
  *
