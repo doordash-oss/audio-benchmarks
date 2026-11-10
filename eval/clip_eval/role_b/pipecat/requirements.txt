@@ -16,6 +16,6 @@
 # Requires Python >=3.11 (pipecat-ai 1.x).
 # Install into the local venv with:
 #   uv pip install --python .venv/bin/python -r requirements.txt
-pipecat-ai[openai,webrtc,google,ultravox,grok,xai]==1.3.0
+pipecat-ai[openai,webrtc,google,ultravox,grok,xai]==1.6.0
 aiohttp>=3.9
 datasets>=4.0,<5
